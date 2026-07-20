@@ -208,7 +208,7 @@
   },
   "devDependencies": {
     "@sentry/cli": "^3.2.2",
-    "vite": "7.3.2"
+    "vite": "6.4.3"
   },
   "packageManager": "yarn@1.22.22"
 }
