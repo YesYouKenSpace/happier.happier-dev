@@ -14,6 +14,7 @@ import { encodeBase64 } from '@/encryption/base64';
 import { Modal } from '@/modal';
 import { t } from '@/text';
 import { useFeatureDecision } from '@/hooks/server/useFeatureDecision';
+import { computeLocalPairingConfirmCode } from '@/auth/pairing/pairingConfirmCode';
 import { pairingRequest } from '@/sync/api/account/apiPairingAuth';
 import { getActiveServerUrl } from '@/sync/domains/server/serverProfiles';
 import { normalizeServerUrl, upsertActivateAndSwitchServer } from '@/sync/domains/server/activeServerSwitch';
@@ -148,10 +149,11 @@ export const RestoreScanComputerQrView = React.memo(function RestoreScanComputer
                     return;
                 }
 
+                const publicKeyBase64 = encodeBase64(keypair.publicKey);
                 const pairingRes = await pairingRequest({
                     pairId: parsed.pairId,
                     secret: parsed.secret,
-                    publicKey: encodeBase64(keypair.publicKey),
+                    publicKey: publicKeyBase64,
                     deviceLabel: resolveDeviceLabel() ?? undefined,
                 });
 
@@ -176,7 +178,9 @@ export const RestoreScanComputerQrView = React.memo(function RestoreScanComputer
                     return;
                 }
 
-                setConfirmCode(pairingRes.data.confirmCode);
+                setConfirmCode(
+                    await computeLocalPairingConfirmCode({ secret: parsed.secret, publicKeyBase64 }),
+                );
 
                 setPhase('waiting');
                 const credentials = await authQRWait(

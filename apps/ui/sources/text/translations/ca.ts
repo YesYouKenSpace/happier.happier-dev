@@ -8297,6 +8297,8 @@ settingsSession: {
         connectTerminal: 'Connecta el terminal',
         terminalRequestDescription: 'Un terminal està sol·licitant connectar-se al teu compte de Happier Coder. Això permetrà al terminal enviar i rebre missatges de forma segura.',
         connectionDetails: 'Detalls de la connexió',
+        clientCode: 'Codi del client',
+        clientCodeMatchHint: 'Verifica que aquest codi coincideixi amb el que es mostra al teu terminal abans d\'aprovar.',
         publicKey: 'Clau pública',
         encryption: 'Xifratge',
         endToEndEncrypted: 'Xifrat punt a punt',
@@ -8311,6 +8313,8 @@ settingsSession: {
         linkProcessedOnDevice: 'Enllaç processat localment al dispositiu',
         switchServerToConnectTerminal: ({ serverUrl }: { serverUrl: string }) =>
             `Aquesta connexió és per a ${serverUrl}. Vols canviar de servidor i continuar?`,
+        accountSafetyNumber: 'Codi de seguretat del compte',
+        accountSafetyNumberHint: 'Després d\'aprovar, introdueix aquest codi al teu terminal per completar la vinculació.',
     },
 
     terminalEmbedded: {

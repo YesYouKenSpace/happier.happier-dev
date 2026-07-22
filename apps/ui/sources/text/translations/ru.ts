@@ -8938,6 +8938,8 @@ settingsSession: {
     terminalRequestDescription:
       "Терминал запрашивает подключение к вашему аккаунту Happier Coder. Это позволит терминалу безопасно отправлять и получать сообщения.",
     connectionDetails: "Детали подключения",
+    clientCode: "Код клиента",
+    clientCodeMatchHint: "Перед подтверждением убедитесь, что этот код совпадает с кодом, отображаемым в вашем терминале.",
     publicKey: "Публичный ключ",
     encryption: "Шифрование",
     endToEndEncrypted: "Сквозное шифрование",
@@ -8954,6 +8956,8 @@ settingsSession: {
     linkProcessedOnDevice: "Ссылка обработана локально на устройстве",
     switchServerToConnectTerminal: ({ serverUrl }: { serverUrl: string }) =>
       `Это подключение для ${serverUrl}. Переключить сервер и продолжить?`,
+    accountSafetyNumber: "Код безопасности аккаунта",
+    accountSafetyNumberHint: "После подтверждения введите этот код в терминале, чтобы завершить привязку.",
   },
 
   terminalEmbedded: {

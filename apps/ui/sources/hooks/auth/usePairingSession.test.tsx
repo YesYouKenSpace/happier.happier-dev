@@ -1,7 +1,10 @@
 import React from 'react';
 import renderer, { act } from 'react-test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Mock } from 'vitest';
 import { renderScreen } from '@/dev/testkit';
+import { computePairingConfirmCode } from '@happier-dev/protocol';
+import type { PairingStartResult, PairingStatusResult } from '@/sync/api/account/apiPairingAuth';
 
 const appState = vi.hoisted(() => ({ currentState: 'active' as string }));
 
@@ -234,6 +237,58 @@ describe('usePairingSession (pairing deep link server URL)', () => {
             });
             vi.useRealTimers();
             globalWithDocument.document = previousDocument;
+        }
+    });
+
+    it('exposes a client-derived confirmCode, independent of the server value', async () => {
+        const requestedPublicKey = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
+        let capturedSecretHash: string | null = null;
+
+        (pairingStartMock as unknown as Mock<(p: { secretHash: string }) => Promise<PairingStartResult>>).mockImplementation(
+            async (p) => {
+                capturedSecretHash = p.secretHash;
+                return { ok: true, data: { pairId: 'pair-1', expiresAt: new Date(Date.now() + 60_000).toISOString() } };
+            },
+        );
+        (pairingStatusMock as unknown as Mock<() => Promise<PairingStatusResult>>).mockResolvedValue({
+            ok: true,
+            data: {
+                state: 'requested',
+                pairId: 'pair-1',
+                expiresAt: new Date(Date.now() + 60_000).toISOString(),
+                requestedPublicKey,
+                requestedDeviceLabel: null,
+                confirmCode: '000 000',
+            },
+        });
+
+        const { usePairingSession } = await import('./usePairingSession');
+
+        let hookApi: ReturnType<typeof usePairingSession> | null = null;
+        function Probe() {
+            hookApi = usePairingSession({ enabled: true, isAuthenticated: true });
+            return null;
+        }
+
+        let tree: renderer.ReactTestRenderer | null = null;
+        tree = (await renderScreen(<Probe />)).tree;
+        try {
+            await act(async () => {
+                const res = await hookApi!.startPairing();
+                expect(res.ok).toBe(true);
+            });
+
+            await vi.waitFor(() => {
+                expect(hookApi!.status?.state).toBe('requested');
+            });
+
+            expect(capturedSecretHash).toBeTruthy();
+            const expected = computePairingConfirmCode(capturedSecretHash!, requestedPublicKey);
+            expect(hookApi!.confirmCode).toBe(expected);
+        } finally {
+            act(() => {
+                tree?.unmount();
+            });
         }
     });
 });

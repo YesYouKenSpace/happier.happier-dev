@@ -1,12 +1,12 @@
 import * as React from 'react';
 import { Platform, useWindowDimensions } from 'react-native';
 import { router } from 'expo-router';
-import { deriveAccountMachineKeyFromRecoverySecret } from '@happier-dev/protocol';
 import { useAuth } from '@/auth/context/AuthContext';
 import { TokenStorage, type AuthCredentials, isLegacyAuthCredentials } from '@/auth/storage/tokenStorage';
 import { decodeBase64 } from '@/encryption/base64';
 import { authApprove } from '@/auth/flows/approve';
 import { buildTerminalResponseV1, buildTerminalResponseV2 } from '@/auth/terminal/terminalProvisioning';
+import { resolveTerminalProvisioningContentPrivateKey } from '@/auth/terminal/resolveContentPrivateKey';
 import { Modal } from '@/modal';
 import { t } from '@/text';
 import { getActiveServerSnapshot, getActiveServerUrl } from '@/sync/domains/server/serverProfiles';
@@ -25,21 +25,6 @@ interface UseConnectTerminalOptions {
     allowLoopbackServerOverride?: boolean;
 }
 
-function resolveTerminalProvisioningContentPrivateKey(credentials: AuthCredentials): Uint8Array {
-    if (!isLegacyAuthCredentials(credentials)) {
-        const machineKey = decodeBase64(credentials.encryption.machineKey, 'base64');
-        if (machineKey.length !== 32) {
-            throw new Error('Invalid dataKey credential key lengths');
-        }
-        return machineKey;
-    }
-
-    const secretKey = decodeBase64(credentials.secret, 'base64url');
-    if (secretKey.length !== 32) {
-        throw new Error(`Invalid secret key length: ${secretKey.length}, expected 32`);
-    }
-    return deriveAccountMachineKeyFromRecoverySecret(secretKey);
-}
 
 export function useConnectTerminal(options?: UseConnectTerminalOptions) {
     const auth = useAuth();

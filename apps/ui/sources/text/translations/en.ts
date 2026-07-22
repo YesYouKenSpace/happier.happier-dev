@@ -8340,6 +8340,8 @@ settingsSession: {
         connectTerminal: 'Connect Terminal',
         terminalRequestDescription: 'A terminal is requesting to connect to your Happier Coder account. This will allow the terminal to send and receive messages securely.',
         connectionDetails: 'Connection Details',
+        clientCode: 'Client code',
+        clientCodeMatchHint: 'Verify this code matches the one shown in your terminal before approving.',
         publicKey: 'Public Key',
         encryption: 'Encryption',
         endToEndEncrypted: 'End-to-end encrypted',
@@ -8354,6 +8356,8 @@ settingsSession: {
         linkProcessedOnDevice: 'Link processed locally on device',
         switchServerToConnectTerminal: ({ serverUrl }: { serverUrl: string }) =>
             `This connection is for ${serverUrl}. Switch servers and continue?`,
+        accountSafetyNumber: 'Account safety code',
+        accountSafetyNumberHint: 'After you approve, enter this code in your terminal to finish linking.',
     },
 
     terminalEmbedded: {

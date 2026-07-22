@@ -8618,6 +8618,8 @@ settingsSession: {
     terminalRequestDescription:
       "有终端正在请求连接到您的 Happier Coder 账户。这将允许终端安全地发送和接收消息。",
     connectionDetails: "连接详情",
+    clientCode: "客户端代码",
+    clientCodeMatchHint: "批准前请确认此代码与终端中显示的代码一致。",
     publicKey: "公钥",
     encryption: "加密",
     endToEndEncrypted: "端到端加密",
@@ -8634,6 +8636,8 @@ settingsSession: {
     linkProcessedOnDevice: "链接在设备上本地处理",
     switchServerToConnectTerminal: ({ serverUrl }: { serverUrl: string }) =>
       `此连接对应 ${serverUrl}。是否切换服务器并继续？`,
+    accountSafetyNumber: "帐户安全码",
+    accountSafetyNumberHint: "批准后，请在终端中输入此安全码以完成关联。",
   },
 
   terminalEmbedded: {

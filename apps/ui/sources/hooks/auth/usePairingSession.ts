@@ -1,5 +1,6 @@
 import * as React from 'react';
 
+import { computePairingConfirmCode } from '@happier-dev/protocol';
 import { createPairingSecret } from '@/auth/pairing/pairingSecret';
 import { buildPairingDeepLink } from '@/auth/pairing/pairingUrl';
 import { getActiveServerSnapshot } from '@/sync/domains/server/serverRuntime';
@@ -29,6 +30,7 @@ export function usePairingSession(params: Readonly<{ enabled: boolean; isAuthent
     isStarting: boolean;
     startPairing: () => Promise<StartPairingResult>;
     clearSession: () => void;
+    confirmCode: string | null;
 }> {
     const enabled = params.enabled;
     const isAuthenticated = params.isAuthenticated;
@@ -39,12 +41,14 @@ export function usePairingSession(params: Readonly<{ enabled: boolean; isAuthent
     const [isExpired, setIsExpired] = React.useState(false);
     const [isStarting, setIsStarting] = React.useState(false);
     const isStartingRef = React.useRef(false);
+    const secretHashRef = React.useRef<string | null>(null);
 
     const clearSession = React.useCallback(() => {
         setPairId(null);
         setStatus(null);
         setDeepLink(null);
         setIsExpired(false);
+        secretHashRef.current = null;
     }, []);
 
     React.useEffect(() => {
@@ -66,9 +70,11 @@ export function usePairingSession(params: Readonly<{ enabled: boolean; isAuthent
         setStatus(null);
         setDeepLink(null);
         setPairId(null);
+        secretHashRef.current = null;
 
         try {
             const { secret, secretHash } = await createPairingSecret();
+            secretHashRef.current = secretHash;
             const started = await pairingStart({ secretHash });
             if (!started.ok) {
                 return { ok: false, status: started.status } as const;
@@ -144,5 +150,12 @@ export function usePairingSession(params: Readonly<{ enabled: boolean; isAuthent
         };
     }, [enabled, isAuthenticated, pairId]);
 
-    return { deepLink, status, isExpired, isStarting, startPairing, clearSession };
+    const confirmCode = React.useMemo(() => {
+        if (!status || status.state !== 'requested') return null;
+        const secretHash = secretHashRef.current;
+        if (!secretHash) return null;
+        return computePairingConfirmCode(secretHash, status.requestedPublicKey);
+    }, [status]);
+
+    return { deepLink, status, isExpired, isStarting, startPairing, clearSession, confirmCode };
 }

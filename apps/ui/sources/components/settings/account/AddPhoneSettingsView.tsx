@@ -124,7 +124,7 @@ export const AddPhoneSettingsView = React.memo(function AddPhoneSettingsView() {
     const pairingState = pairingDecision?.state ?? 'unknown';
     const pairingEnabled = pairingState === 'enabled';
 
-    const { deepLink, status, isExpired, isStarting: starting, startPairing } = usePairingSession({
+    const { deepLink, status, isExpired, isStarting: starting, startPairing, confirmCode } = usePairingSession({
         enabled: pairingEnabled,
         isAuthenticated: auth.isAuthenticated,
     });
@@ -279,7 +279,7 @@ export const AddPhoneSettingsView = React.memo(function AddPhoneSettingsView() {
                                         {t('connect.pairingRequestBody')}
                                     </Text>
                                     <Text style={[styles.requestBody, { marginTop: 10 }]}>{t('connect.confirmCodeLabel')}</Text>
-                                    <Text testID="add-phone-request-confirm-code" style={styles.confirmCode}>{status.confirmCode}</Text>
+                                    <Text testID="add-phone-request-confirm-code" style={styles.confirmCode}>{confirmCode ?? ''}</Text>
                                     <View style={styles.footer}>
                                         <RoundButton
                                             testID="add-phone-approve"

@@ -699,6 +699,13 @@ export {
 } from './crypto/base64.js';
 
 export {
+  accountSafetyNumber,
+  accountSafetyNumberFromPrivateKey,
+  deriveContentPublicKey,
+} from './crypto/accountSafetyNumber.js';
+export { SAFETY_NUMBER_WORDLIST } from './crypto/safetyNumberWordlist.js';
+
+export {
   McpServerBindingOverridesV1Schema,
   McpServerBindingTargetV1Schema,
   McpServerBindingV1Schema,
@@ -2230,6 +2237,12 @@ export {
   computePromptBundleDigestV1,
   computePromptDocDigestV1,
 } from './promptLibrary/promptLibraryDigests.js';
+
+export {
+  computePairingConfirmCode,
+  computeTerminalConnectConfirmCode,
+  confirmCodeFromDigest,
+} from './crypto/linkConfirmCode.js';
 
 export {
   PromptExternalLinkEntryV1Schema,

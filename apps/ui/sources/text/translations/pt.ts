@@ -9093,6 +9093,8 @@ settingsSession: {
     terminalRequestDescription:
       "Um terminal está solicitando conexão à sua conta Happier Coder. Isso permitirá que o terminal envie e receba mensagens com segurança.",
     connectionDetails: "Detalhes da conexão",
+    clientCode: "Código do cliente",
+    clientCodeMatchHint: "Verifique se este código corresponde ao exibido no seu terminal antes de aprovar.",
     publicKey: "Chave pública",
     encryption: "Criptografia",
     endToEndEncrypted: "Criptografia ponta a ponta",
@@ -9109,6 +9111,8 @@ settingsSession: {
     linkProcessedOnDevice: "Link processado localmente no dispositivo",
     switchServerToConnectTerminal: ({ serverUrl }: { serverUrl: string }) =>
       `Esta conexão é para ${serverUrl}. Trocar de servidor e continuar?`,
+    accountSafetyNumber: "Código de segurança da conta",
+    accountSafetyNumberHint: "Após aprovar, insira este código no seu terminal para concluir a vinculação.",
   },
 
   terminalEmbedded: {

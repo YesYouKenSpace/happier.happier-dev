@@ -9200,6 +9200,8 @@ settingsSession: {
     terminalRequestDescription:
       "ターミナルがHappier Coderアカウントへの接続を要求しています。これにより、ターミナルは安全にメッセージを送受信できるようになります。",
     connectionDetails: "接続の詳細",
+    clientCode: "クライアントコード",
+    clientCodeMatchHint: "承認する前に、このコードがターミナルに表示されているコードと一致することを確認してください。",
     publicKey: "公開鍵",
     encryption: "暗号化",
     endToEndEncrypted: "エンドツーエンド暗号化",
@@ -9216,6 +9218,8 @@ settingsSession: {
     linkProcessedOnDevice: "リンクはデバイス上でローカルに処理されました",
     switchServerToConnectTerminal: ({ serverUrl }: { serverUrl: string }) =>
       `This connection is for ${serverUrl}. Switch servers and continue?`,
+    accountSafetyNumber: "アカウントセーフティコード",
+    accountSafetyNumberHint: "承認後、このコードをターミナルに入力してリンクを完了してください。",
   },
 
   terminalEmbedded: {

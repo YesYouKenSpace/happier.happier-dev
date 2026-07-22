@@ -7093,6 +7093,8 @@ settingsSession: {
         connectTerminal: '連線終端',
         terminalRequestDescription: '有終端正在請求連線到您的 Happier Coder 帳戶。這將允許終端安全地傳送和接收訊息。',
         connectionDetails: '連線詳情',
+        clientCode: '客戶端代碼',
+        clientCodeMatchHint: '批准前請確認此代碼與終端中顯示的代碼一致。',
         publicKey: '公鑰',
         encryption: '加密',
         endToEndEncrypted: '端對端加密',
@@ -7107,6 +7109,8 @@ settingsSession: {
         linkProcessedOnDevice: '連結在裝置上本機處理',
         switchServerToConnectTerminal: ({ serverUrl }: { serverUrl: string }) =>
             `此連線屬於 ${serverUrl}。要切換伺服器並繼續嗎？`,
+        accountSafetyNumber: '帳戶安全碼',
+        accountSafetyNumberHint: '批准後，請在終端機中輸入此安全碼以完成連結。',
     },
 
     terminalEmbedded: {

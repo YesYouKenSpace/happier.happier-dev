@@ -19,6 +19,8 @@ import { buildTerminalConnectDeepLink } from '@/utils/path/terminalConnectUrl';
 import { canonicalizeServerUrl } from '@/sync/domains/server/url/serverUrlCanonical';
 import { resolveEffectiveServerUrlOverride } from '@/sync/domains/server/url/serverUrlOverridePolicy';
 import { safeRouterBack } from '@/utils/navigation/safeRouterBack';
+import { terminalConnectVerificationCodeFromB64Url } from '@/auth/terminal/terminalConnectVerificationCode';
+import { accountSafetyNumberForCredentials } from '@/auth/terminal/accountSafetyNumber';
 
 export default function TerminalScreen() {
     const router = useRouter();
@@ -108,6 +110,16 @@ export default function TerminalScreen() {
         clearPendingTerminalConnect();
         navigateBackOrToHome();
     };
+
+    const clientCode = React.useMemo(
+        () => (publicKey ? terminalConnectVerificationCodeFromB64Url(publicKey) : null),
+        [publicKey],
+    );
+
+    const accountCode = React.useMemo(
+        () => (auth.credentials ? accountSafetyNumberForCredentials(auth.credentials) : null),
+        [auth.credentials],
+    );
 
     if (!auth.isAuthenticated && publicKey) {
         return renderInShell(
@@ -211,7 +223,25 @@ export default function TerminalScreen() {
             </ItemGroup>
 
             {/* Connection Details */}
-            <ItemGroup title={t('terminal.connectionDetails')}>
+            <ItemGroup title={t('terminal.connectionDetails')} footer={t('terminal.accountSafetyNumberHint')}>
+                {clientCode ? (
+                    <Item
+                        testID="terminal-connect-client-code"
+                        title={t('terminal.clientCode')}
+                        detail={clientCode}
+                        icon={<Ionicons name="shield-checkmark-outline" size={29} color={theme.colors.state.success.foreground} />}
+                        showChevron={false}
+                    />
+                ) : null}
+                {accountCode ? (
+                    <Item
+                        testID="terminal-connect-account-safety-number"
+                        title={t('terminal.accountSafetyNumber')}
+                        detail={accountCode}
+                        icon={<Ionicons name="finger-print-outline" size={29} color={theme.colors.state.success.foreground} />}
+                        showChevron={false}
+                    />
+                ) : null}
                 <Item
                     title={t('terminal.publicKey')}
                     detail={`${publicKey.substring(0, 12)}...`}

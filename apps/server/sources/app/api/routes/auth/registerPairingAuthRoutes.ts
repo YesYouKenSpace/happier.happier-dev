@@ -3,6 +3,8 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import tweetnacl from "tweetnacl";
 import * as privacyKit from "privacy-kit";
 
+import { computePairingConfirmCode } from "@happier-dev/protocol";
+
 import { db } from "@/storage/db";
 import { type Fastify } from "../../types";
 import { createServerFeatureGatedRouteApp } from "@/app/features/catalog/serverFeatureGate";
@@ -32,12 +34,6 @@ function sanitizeDeviceLabel(raw: unknown): string | null {
     return trimmed.slice(0, 120);
 }
 
-function computeConfirmCode(secretHash: string, publicKeyBase64: string): string {
-    const digest = createHash("sha256").update(`${secretHash}.${publicKeyBase64}`, "utf8").digest();
-    const n = digest.readUInt32BE(0) % 1_000_000;
-    const code = String(n).padStart(6, "0");
-    return `${code.slice(0, 3)} ${code.slice(3)}`;
-}
 
 export function registerPairingAuthRoutes(app: Fastify): void {
     const gated = createServerFeatureGatedRouteApp(app as any, "auth.pairing.desktopQrMobileScan");
@@ -156,7 +152,7 @@ export function registerPairingAuthRoutes(app: Fastify): void {
                 },
             });
 
-            return reply.send({ state: "requested", confirmCode: computeConfirmCode(session.secretHash, publicKeyRaw) });
+            return reply.send({ state: "requested", confirmCode: computePairingConfirmCode(session.secretHash, publicKeyRaw) });
         },
     );
 
@@ -213,7 +209,7 @@ export function registerPairingAuthRoutes(app: Fastify): void {
                 expiresAt: session.expiresAt.toISOString(),
                 requestedPublicKey: session.requestedPublicKey,
                 requestedDeviceLabel: session.requestedDeviceLabel ?? null,
-                confirmCode: computeConfirmCode(session.secretHash, session.requestedPublicKey),
+                confirmCode: computePairingConfirmCode(session.secretHash, session.requestedPublicKey),
             });
         },
     );

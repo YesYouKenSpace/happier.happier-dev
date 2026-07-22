@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { flushHookEffects, renderScreen } from '@/dev/testkit';
+import { computePairingConfirmCode } from '@happier-dev/protocol';
 import { installAccountCommonModuleMocks } from '../../account/accountTestHelpers';
 
 
@@ -191,5 +192,51 @@ describe('AddPhoneSettingsView', () => {
         const textContent = screen.getTextContent();
         expect(textContent).toContain('connect.serverUrlNotEmbeddedTitle');
         expect(textContent).toContain('connect.serverUrlNotEmbeddedBody');
+    });
+
+    it('renders the client-derived confirm code, ignoring the server confirmCode value', async () => {
+        featureState = 'enabled';
+        activeServerUrl = 'https://stack.example.test';
+
+        const requestedPublicKey = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
+        let capturedSecretHash: string | null = null;
+
+        serverFetchSpy.mockImplementation(async (path: string, init?: any, _options?: any) => {
+            if (path === '/v1/auth/pairing/start') {
+                const body = JSON.parse(init?.body ?? '{}');
+                capturedSecretHash = body.secretHash ?? null;
+                return {
+                    ok: true,
+                    status: 200,
+                    json: async () => ({ pairId: 'pair_123', expiresAt: '2099-02-23T00:00:00.000Z' }),
+                } as any;
+            }
+            if (path.startsWith('/v1/auth/pairing/status')) {
+                return {
+                    ok: true,
+                    status: 200,
+                    json: async () => ({
+                        state: 'requested',
+                        pairId: 'pair_123',
+                        expiresAt: '2099-02-23T00:00:00.000Z',
+                        requestedPublicKey,
+                        requestedDeviceLabel: null,
+                        confirmCode: '000 000',
+                    }),
+                } as any;
+            }
+            throw new Error(`Unexpected serverFetch path: ${path}`);
+        });
+
+        const { AddPhoneSettingsView } = await import('./AddPhoneSettingsView');
+        const screen = await renderScreen(<AddPhoneSettingsView />);
+        await flushHookEffects({ cycles: 4 });
+
+        expect(capturedSecretHash).toBeTruthy();
+        const expected = computePairingConfirmCode(capturedSecretHash!, requestedPublicKey);
+
+        const codeNode = screen.findByTestId('add-phone-request-confirm-code');
+        expect(codeNode).toBeTruthy();
+        expect(codeNode?.props.children).toBe(expected);
     });
 });

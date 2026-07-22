@@ -4,6 +4,8 @@ import { createHash, randomBytes } from "node:crypto";
 import tweetnacl from 'tweetnacl';
 import axios from 'axios';
 import { displayQRCode } from "./qrcode";
+import { printTerminalConnectVerificationCode } from './terminalConnectVerification';
+import { restoreStdinBestEffort } from './ink/restoreStdinBestEffort';
 import { delay } from "@/utils/time";
 import { writeCredentialsLegacy, readCredentials, readSettings, updateSettings, Credentials, writeCredentialsDataKey } from "@/persistence";
 import { generateWebAuthUrl } from "@/api/webAuth";
@@ -19,6 +21,7 @@ import { buildConfigureServerLinks, buildTerminalConnectLinks } from '@happier-d
 import { tailscaleServeHttpsUrlForInternalServerUrl } from '@/integrations/tailscale/tailscaleServe';
 import { isInsecureRemoteHttpServerUrl, isLocalishServerUrl, isLoopbackHttpServerUrl } from '@/server/serverUrlClassification';
 import { decodeJwtPayload } from '@/cloud/decodeJwtPayload';
+import { accountSafetyNumberForDecryptedResponse, confirmAccountSafetyCode } from './confirmAccountSafetyCode';
 
 export type PostTerminalAuthRequestCompatibleResponse =
     | { state: 'requested' }
@@ -311,6 +314,8 @@ async function doBothAuth(params: Readonly<{ keypair: tweetnacl.BoxKeyPair; clai
     console.log(terminalLinks.mobileUrl);
     console.log('');
 
+    printTerminalConnectVerificationCode(params.keypair);
+
     console.log('Web (fallback)');
     console.log('Open this URL in a browser where you are signed in to Happier:');
     console.log(terminalLinks.webUrl);
@@ -366,6 +371,9 @@ function selectAuthenticationMethod(): Promise<AuthMethod | null> {
             if (!hasResolved) {
                 hasResolved = true;
                 app.unmount();
+                // Ink leaves stdin in raw mode with its own listeners; restore it so a
+                // later readline (e.g. the account safety code prompt) can read a line.
+                restoreStdinBestEffort({ stdin: process.stdin });
                 resolve(method);
             }
         };
@@ -374,6 +382,7 @@ function selectAuthenticationMethod(): Promise<AuthMethod | null> {
             if (!hasResolved) {
                 hasResolved = true;
                 app.unmount();
+                restoreStdinBestEffort({ stdin: process.stdin });
                 resolve(null);
             }
         };
@@ -439,6 +448,8 @@ async function doMobileAuth(params: Readonly<{ keypair: tweetnacl.BoxKeyPair; cl
     console.log(terminalLinks.mobileUrl);
     console.log('');
 
+    printTerminalConnectVerificationCode(params.keypair);
+
     console.log('Web (fallback):');
     console.log(terminalLinks.webUrl);
     console.log('');
@@ -497,6 +508,9 @@ async function doWebAuth(params: Readonly<{ keypair: tweetnacl.BoxKeyPair; claim
     console.log('If you want to use the mobile app instead, manually open this deep link:');
     console.log(terminalLinks.mobileUrl);
     console.log('');
+
+    printTerminalConnectVerificationCode(params.keypair);
+
     if (!terminalLinks.mobileUrl.includes('server=')) {
         printMobileLinkMissingServerUrlHint({ serverUrl: configuration.serverUrl, kind: 'terminalConnect' });
     }
@@ -535,6 +549,18 @@ async function waitForAuthentication(params: Readonly<{ keypair: tweetnacl.BoxKe
                     const decrypted = decryptWithEphemeralKey(r, params.keypair.secretKey);
                     if (!decrypted) {
                         console.log('\n\nFailed to decrypt response. Please try again.');
+                        return null;
+                    }
+
+                    const accountSafetyCode = accountSafetyNumberForDecryptedResponse(decrypted);
+                    if (!accountSafetyCode) {
+                        console.log('\n\nFailed to decrypt response. Please try again.');
+                        return null;
+                    }
+                    const isInteractive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+                    const confirmed = await confirmAccountSafetyCode({ expected: accountSafetyCode, isInteractive });
+                    if (!confirmed) {
+                        console.log('\n\nLink rejected: account safety code was not confirmed. No credentials were saved.');
                         return null;
                     }
 
