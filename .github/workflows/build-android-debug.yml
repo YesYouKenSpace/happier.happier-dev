@@ -1,0 +1,101 @@
+name: BUILD — Android Debug APK (bare gradle)
+
+# Builds an installable, debug-signed Android APK WITHOUT EAS / Expo servers.
+# No EXPO_TOKEN and no release keystore are required: `expo prebuild` generates the
+# native project locally and Gradle's `assembleDebug` auto-signs with the SDK debug key.
+# Output is uploaded as a workflow artifact (not published to a Release or a store).
+#
+# Caveats:
+#  - Debug build: debuggable, unminified, larger; NOT for Play Store.
+#  - A fresh runner generates a new debug keystore each run, so the signature changes
+#    between builds — testers must uninstall a previous install before updating. To make
+#    updates work, commit a fixed debug keystore and point Gradle at it.
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: "Git ref (branch, tag, or SHA) to build"
+        required: false
+        default: ""
+        type: string
+      app_env:
+        description: "APP_ENV variant baked into the prebuild"
+        required: true
+        default: development
+        type: choice
+        options:
+          - development
+          - preview
+          - production
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-android-debug-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  android_debug:
+    name: Build Android debug APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref != '' && inputs.source_ref || github.sha }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: yarn
+          cache-dependency-path: yarn.lock
+
+      - name: Enable Corepack (Yarn)
+        run: |
+          set -euo pipefail
+          corepack enable
+          corepack prepare yarn@1.22.22 --activate
+
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        env:
+          YARN_PRODUCTION: "false"
+          npm_config_production: "false"
+          HAPPIER_INSTALL_SCOPE: "ui,protocol,agents,cli-common,release-runtime,transfers,connection-supervisor,audio-stream-native,sherpa-native"
+          HAPPIER_UI_VENDOR_WEB_ASSETS: "0"
+        uses: ./.github/actions/install-yarn-dependencies
+        with:
+          args: --frozen-lockfile --ignore-engines
+
+      - name: Ensure internal workspaces are built
+        run: yarn --cwd apps/ui ensure:workspace:built
+
+      - name: Prebuild native Android project
+        env:
+          APP_ENV: ${{ inputs.app_env }}
+          EXPO_UNSTABLE_WEB_MODAL: "1"
+        run: yarn --cwd apps/ui prebuild
+
+      - name: Build debug APK
+        run: |
+          set -euo pipefail
+          cd apps/ui/android
+          ./gradlew :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Upload debug APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-apk-${{ inputs.app_env }}
+          path: apps/ui/android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 7
