@@ -60,7 +60,7 @@ jobs:
       - name: Create GitHub App token for guard checks
         id: app_token
         if: ${{ env.RELEASE_BOT_APP_ID != '' && env.RELEASE_BOT_PRIVATE_KEY != '' }}
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
         with:
           app-id: ${{ env.RELEASE_BOT_APP_ID }}
           private-key: ${{ env.RELEASE_BOT_PRIVATE_KEY }}

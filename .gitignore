@@ -34,6 +34,7 @@ yarn-error.*
 
 # local caches (dev / CI)
 .tmp-home/
+**/.tmp/
 .playwright-cli/
 .yarn-cache/
 .yarn-global/
