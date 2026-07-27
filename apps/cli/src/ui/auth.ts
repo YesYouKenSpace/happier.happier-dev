@@ -189,7 +189,7 @@ function rehydrateRelayScopeEnvFromConfiguration(): void {
     }
 }
 
-export async function doAuth(): Promise<Credentials | null> {
+export async function doAuth(options?: Readonly<{ skipAccountSafetyCode?: boolean }>): Promise<Credentials | null> {
     // Ink requires raw mode support; in daemon/non-tty contexts we must never render Ink
     // (it will crash with "Raw mode is not supported on the current process.stdin").
     const hasRawMode = Boolean(process.stdin.isTTY && typeof (process.stdin as any).setRawMode === 'function');
@@ -242,15 +242,15 @@ export async function doAuth(): Promise<Credentials | null> {
 
     // Handle authentication based on selected method
     if (authMethod === 'mobile') {
-        return await doMobileAuth({ keypair, claimSecret: claimSecretB64Url });
+        return await doMobileAuth({ keypair, claimSecret: claimSecretB64Url, skipAccountSafetyCode: options?.skipAccountSafetyCode });
     }
     if (authMethod === 'web') {
-        return await doWebAuth({ keypair, claimSecret: claimSecretB64Url });
+        return await doWebAuth({ keypair, claimSecret: claimSecretB64Url, skipAccountSafetyCode: options?.skipAccountSafetyCode });
     }
-    return await doBothAuth({ keypair, claimSecret: claimSecretB64Url });
+    return await doBothAuth({ keypair, claimSecret: claimSecretB64Url, skipAccountSafetyCode: options?.skipAccountSafetyCode });
 }
 
-async function doBothAuth(params: Readonly<{ keypair: tweetnacl.BoxKeyPair; claimSecret: string }>): Promise<Credentials | null> {
+async function doBothAuth(params: Readonly<{ keypair: tweetnacl.BoxKeyPair; claimSecret: string; skipAccountSafetyCode?: boolean }>): Promise<Credentials | null> {
     if (process.stdout.isTTY) {
         console.clear();
     }
@@ -331,7 +331,7 @@ async function doBothAuth(params: Readonly<{ keypair: tweetnacl.BoxKeyPair; clai
         }
     }
 
-    return await waitForAuthentication({ keypair: params.keypair, claimSecret: params.claimSecret });
+    return await waitForAuthentication({ keypair: params.keypair, claimSecret: params.claimSecret, skipAccountSafetyCode: params.skipAccountSafetyCode });
 }
 
 async function postTerminalAuthRequestCompatible(params: Readonly<{
@@ -397,7 +397,7 @@ function selectAuthenticationMethod(): Promise<AuthMethod | null> {
 /**
  * Handle mobile authentication flow
  */
-async function doMobileAuth(params: Readonly<{ keypair: tweetnacl.BoxKeyPair; claimSecret: string }>): Promise<Credentials | null> {
+async function doMobileAuth(params: Readonly<{ keypair: tweetnacl.BoxKeyPair; claimSecret: string; skipAccountSafetyCode?: boolean }>): Promise<Credentials | null> {
     if (process.stdout.isTTY) {
         console.clear();
     }
@@ -454,13 +454,13 @@ async function doMobileAuth(params: Readonly<{ keypair: tweetnacl.BoxKeyPair; cl
     console.log(terminalLinks.webUrl);
     console.log('');
 
-    return await waitForAuthentication({ keypair: params.keypair, claimSecret: params.claimSecret });
+    return await waitForAuthentication({ keypair: params.keypair, claimSecret: params.claimSecret, skipAccountSafetyCode: params.skipAccountSafetyCode });
 }
 
 /**
  * Handle web authentication flow
  */
-async function doWebAuth(params: Readonly<{ keypair: tweetnacl.BoxKeyPair; claimSecret: string }>): Promise<Credentials | null> {
+async function doWebAuth(params: Readonly<{ keypair: tweetnacl.BoxKeyPair; claimSecret: string; skipAccountSafetyCode?: boolean }>): Promise<Credentials | null> {
     if (process.stdout.isTTY) {
         console.clear();
     }
@@ -515,13 +515,13 @@ async function doWebAuth(params: Readonly<{ keypair: tweetnacl.BoxKeyPair; claim
         printMobileLinkMissingServerUrlHint({ serverUrl: configuration.serverUrl, kind: 'terminalConnect' });
     }
 
-    return await waitForAuthentication({ keypair: params.keypair, claimSecret: params.claimSecret });
+    return await waitForAuthentication({ keypair: params.keypair, claimSecret: params.claimSecret, skipAccountSafetyCode: params.skipAccountSafetyCode });
 }
 
 /**
  * Wait for authentication to complete and return credentials
  */
-async function waitForAuthentication(params: Readonly<{ keypair: tweetnacl.BoxKeyPair; claimSecret: string }>): Promise<Credentials | null> {
+async function waitForAuthentication(params: Readonly<{ keypair: tweetnacl.BoxKeyPair; claimSecret: string; skipAccountSafetyCode?: boolean }>): Promise<Credentials | null> {
     process.stdout.write('Waiting for authentication');
     let dots = 0;
     let cancelled = false;
@@ -558,7 +558,7 @@ async function waitForAuthentication(params: Readonly<{ keypair: tweetnacl.BoxKe
                         return null;
                     }
                     const isInteractive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
-                    const confirmed = await confirmAccountSafetyCode({ expected: accountSafetyCode, isInteractive });
+                    const confirmed = await confirmAccountSafetyCode({ expected: accountSafetyCode, isInteractive, skip: params.skipAccountSafetyCode });
                     if (!confirmed) {
                         console.log('\n\nLink rejected: account safety code was not confirmed. No credentials were saved.');
                         return null;
@@ -863,7 +863,7 @@ export async function ensureMachineIdForCredentials(
  * Ensure authentication and machine setup
  * This replaces the onboarding flow and ensures everything is ready
  */
-export async function authAndSetupMachineIfNeeded(): Promise<{
+export async function authAndSetupMachineIfNeeded(options?: Readonly<{ skipAccountSafetyCode?: boolean }>): Promise<{
     credentials: Credentials;
     machineId: string;
 }> {
@@ -875,7 +875,7 @@ export async function authAndSetupMachineIfNeeded(): Promise<{
 
     if (!credentials) {
         logger.debug('[AUTH] No credentials found, starting authentication flow...');
-        const authResult = await doAuth();
+        const authResult = await doAuth(options);
         if (!authResult) {
             throw new Error('Authentication failed or was cancelled');
         }

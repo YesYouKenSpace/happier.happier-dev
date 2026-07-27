@@ -5,7 +5,7 @@ export function showAuthHelp(): void {
 ${chalk.bold('happier auth')} - Authentication management
 
 ${chalk.bold('Usage:')}
-  happier auth login [--no-open] [--force] [--method web|mobile] [--server <name-or-id> | --server-url <url> [--webapp-url <url>] [--persist|--no-persist]]    Authenticate with Happier
+  happier auth login [--no-open] [--force] [--method web|mobile] [--skip-account-safety-code] [--server <name-or-id> | --server-url <url> [--webapp-url <url>] [--persist|--no-persist]]    Authenticate with Happier
   happier auth request --json [--server <name-or-id> | --server-url <url> [--webapp-url <url>] [--persist|--no-persist]]                                    Create a claim-gated auth request (headless-friendly)
   happier auth approve --public-key <base64> --json [--server <name-or-id> | --server-url <url> [--webapp-url <url>] [--persist|--no-persist]]              Approve an auth request using your local credentials
   happier auth wait --public-key <base64> --json [--server <name-or-id> | --server-url <url> [--webapp-url <url>] [--persist|--no-persist]]                Wait for approval and write credentials for this machine
@@ -19,6 +19,7 @@ ${chalk.bold('Options:')}
   --force    Clear credentials, machine ID, and stop daemon before re-auth
   --method   Force authentication method (web|mobile). Useful for headless/non-TTY.
   --print-configure-links  Print advanced “configure relay” links for tooling (rare)
+  --skip-account-safety-code  Link without the account safety code prompt. Use only when the approving app is too old to show the code; this skips a security check that guards against a malicious relay.
   --all      When used with logout, remove local data for all relays
   --json       Print machine-readable JSON (recommended for containers)
   --public-key Used with approve/wait; the terminal public key from "auth request --json"

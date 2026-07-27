@@ -109,4 +109,20 @@ describe('confirmAccountSafetyCode', () => {
     expect(h.logs.join('\n')).not.toContain(expected);
     expect(h.logs.join('\n')).not.toContain(normalizeSafetyCode(expected));
   });
+
+  test('skip=true bypasses the prompt and returns true without asking, even non-interactively', async () => {
+    const h = harness([expected]); // answers present but must never be consulted
+    const ok = await confirmAccountSafetyCode({ expected, isInteractive: false, skip: true, log: h.log, ask: h.ask });
+    expect(ok).toBe(true);
+    expect(h.asked).toBe(0);
+  });
+
+  test('skip=true warns that verification was skipped without leaking the code', async () => {
+    const h = harness([]);
+    await confirmAccountSafetyCode({ expected, isInteractive: true, skip: true, log: h.log, ask: h.ask });
+    const out = h.logs.join('\n');
+    expect(out.toLowerCase()).toContain('skip');
+    expect(out).not.toContain(expected);
+    expect(h.asked).toBe(0);
+  });
 });

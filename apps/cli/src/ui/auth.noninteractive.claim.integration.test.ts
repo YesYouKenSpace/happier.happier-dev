@@ -129,7 +129,8 @@ describe('authAndSetupMachineIfNeeded (non-TTY) (status+claim)', () => {
     const { authAndSetupMachineIfNeeded } = await import('./auth');
     const output = captureConsoleLogAndMuteStdout();
     try {
-      const result = await authAndSetupMachineIfNeeded();
+      // Non-interactive linking must explicitly opt out of the account safety code prompt.
+      const result = await authAndSetupMachineIfNeeded({ skipAccountSafetyCode: true });
 
       expect(result.credentials.token).toBe('token-1');
       expect(result.credentials.encryption.type).toBe('legacy');
@@ -262,7 +263,8 @@ describe('authAndSetupMachineIfNeeded (non-TTY) (status+claim)', () => {
     const output = captureConsoleLogAndMuteStdout();
 
     try {
-      const result = await authAndSetupMachineIfNeeded();
+      // Non-interactive linking must explicitly opt out of the account safety code prompt.
+      const result = await authAndSetupMachineIfNeeded({ skipAccountSafetyCode: true });
       const privateKey = new Uint8Array(32).fill(9);
       const expectedPublic = tweetnacl.box.keyPair.fromSecretKey(privateKey).publicKey;
 

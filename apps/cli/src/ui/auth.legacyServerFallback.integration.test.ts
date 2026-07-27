@@ -136,7 +136,8 @@ describe('authAndSetupMachineIfNeeded (legacy server fallback) (integration)', (
     const { authAndSetupMachineIfNeeded } = await import('./auth');
     const output = captureConsoleLogAndMuteStdout();
     try {
-      const result = await authAndSetupMachineIfNeeded();
+      // Non-interactive linking must explicitly opt out of the account safety code prompt.
+      const result = await authAndSetupMachineIfNeeded({ skipAccountSafetyCode: true });
       expect(result.credentials.token).toBe('token-legacy');
       expect(result.credentials.encryption.type).toBe('legacy');
     } finally {
@@ -165,7 +166,8 @@ describe('authAndSetupMachineIfNeeded (legacy server fallback) (integration)', (
     const { authAndSetupMachineIfNeeded } = await import('./auth');
     const output = captureConsoleLogAndMuteStdout();
     try {
-      const result = await authAndSetupMachineIfNeeded();
+      // Non-interactive linking must explicitly opt out of the account safety code prompt.
+      const result = await authAndSetupMachineIfNeeded({ skipAccountSafetyCode: true });
       expect(result.credentials.token).toBe('token-legacy-2');
       expect(result.credentials.encryption.type).toBe('legacy');
     } finally {
@@ -195,7 +197,8 @@ describe('authAndSetupMachineIfNeeded (legacy server fallback) (integration)', (
     const { authAndSetupMachineIfNeeded } = await import('./auth');
     const output = captureConsoleLogAndMuteStdout();
     try {
-      const result = await authAndSetupMachineIfNeeded();
+      // Non-interactive linking must explicitly opt out of the account safety code prompt.
+      const result = await authAndSetupMachineIfNeeded({ skipAccountSafetyCode: true });
       expect(result.credentials.token).toBe('token-legacy-strict');
       expect(result.credentials.encryption.type).toBe('legacy');
     } finally {

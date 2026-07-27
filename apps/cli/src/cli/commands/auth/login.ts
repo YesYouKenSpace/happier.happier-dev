@@ -16,6 +16,7 @@ export async function handleAuthLogin(args: string[]): Promise<void> {
   const forceAuth = args.includes('--force') || args.includes('-f');
   const noOpen = args.includes('--no-open') || args.includes('--no-browser') || args.includes('--no-browser-open');
   const printConfigureLinks = args.includes('--print-configure-links');
+  const skipAccountSafetyCode = args.includes('--skip-account-safety-code');
   let method: 'web' | 'mobile' | null = null;
   try {
     method = resolveAuthMethodFlag(args);
@@ -95,8 +96,13 @@ export async function handleAuthLogin(args: string[]): Promise<void> {
     }
   }
 
+  if (skipAccountSafetyCode) {
+    console.log(chalk.yellow('⚠  Skipping account safety code verification (--skip-account-safety-code).'));
+    console.log(chalk.gray('   Linking will proceed without verifying the account. Use only when the approving app is too old to show the code.'));
+  }
+
   try {
-    const result = await authAndSetupMachineIfNeeded();
+    const result = await authAndSetupMachineIfNeeded({ skipAccountSafetyCode });
     console.log(chalk.green('\n✓ Authentication successful'));
     console.log(chalk.gray(`  Machine ID: ${result.machineId}`));
   } catch (error) {

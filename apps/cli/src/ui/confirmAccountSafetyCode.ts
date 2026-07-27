@@ -69,17 +69,27 @@ export function promptLine(
  * computed from what it received; a mismatch means a different account was
  * delivered (e.g. a malicious relay), and linking is aborted.
  *
- * Non-interactive terminals fail closed (no bypass).
+ * Non-interactive terminals fail closed unless the caller explicitly opts out
+ * via `skip` (the `happier auth login --skip-account-safety-code` flag), which
+ * proceeds WITHOUT verification — intended only for linking against an approving
+ * app too old to display the code.
  */
 export async function confirmAccountSafetyCode(params: Readonly<{
   expected: string;
   isInteractive: boolean;
+  skip?: boolean;
   maxAttempts?: number;
   log?: (message: string) => void;
   ask?: (question: string) => Promise<string>;
 }>): Promise<boolean> {
   const log = params.log ?? console.log;
   const maxAttempts = params.maxAttempts ?? 3;
+  if (params.skip) {
+    log('');
+    log('⚠  Skipping account safety code verification (--skip-account-safety-code).');
+    log('Linking will proceed WITHOUT verifying the account. Only use this when the approving app is too old to show the code.');
+    return true;
+  }
   log('');
   log('To finish linking, enter the account safety code shown in the Happier app.');
   if (!params.isInteractive) {
