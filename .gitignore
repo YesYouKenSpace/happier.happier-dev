@@ -25,6 +25,10 @@ apps/*/dist/
 *.key
 *.mobileprovision
 
+# Local Docker Android build: host-extracted corporate root CA(s), machine-specific
+docker/android/local-ca-certs.pem
+docker/android/ca-certs/
+
 # Metro
 .metro-health-check*
 
