@@ -42,4 +42,61 @@ describe('withAndroidReleaseShrinker', () => {
             /requires `enableMinifyInReleaseBuilds`/i
         );
     });
+
+    it('writes only org.gradle.jvmargs when minify/shrink are off (debug-APK heap path)', () => {
+        const apply = plugin.applyAndroidReleaseShrinkerSettingsToGradleProperties as (
+            props: any[],
+            options: { gradleJvmArgs?: string }
+        ) => any[];
+        const props: any[] = [];
+
+        apply(props, { gradleJvmArgs: '-Xmx6144m -XX:MaxMetaspaceSize=1024m' });
+        expect(props).toEqual([
+            { type: 'property', key: 'org.gradle.jvmargs', value: '-Xmx6144m -XX:MaxMetaspaceSize=1024m' },
+        ]);
+    });
+});
+
+describe('resolveGradlePropertiesPluginProps', () => {
+    const resolve = plugin.resolveGradlePropertiesPluginProps as (
+        options: {
+            enableMinifyInReleaseBuilds?: boolean;
+            enableShrinkResourcesInReleaseBuilds?: boolean;
+            gradleJvmArgs?: string;
+        }
+    ) => Record<string, unknown> | null;
+
+    it('returns null when no minify/shrink/jvmargs knob is requested', () => {
+        expect(resolve({})).toBeNull();
+        expect(resolve({ gradleJvmArgs: '   ' })).toBeNull();
+    });
+
+    it('activates on gradleJvmArgs alone without enabling minify/shrink', () => {
+        expect(resolve({ gradleJvmArgs: '  -Xmx6144m -XX:MaxMetaspaceSize=1024m  ' })).toEqual({
+            enableMinifyInReleaseBuilds: false,
+            enableShrinkResourcesInReleaseBuilds: false,
+            gradleJvmArgs: '-Xmx6144m -XX:MaxMetaspaceSize=1024m',
+        });
+    });
+
+    it('carries minify/shrink flags alongside jvmargs when enabled', () => {
+        expect(
+            resolve({
+                enableMinifyInReleaseBuilds: true,
+                enableShrinkResourcesInReleaseBuilds: true,
+                gradleJvmArgs: '-Xmx4096m',
+            })
+        ).toEqual({
+            enableMinifyInReleaseBuilds: true,
+            enableShrinkResourcesInReleaseBuilds: true,
+            gradleJvmArgs: '-Xmx4096m',
+        });
+    });
+
+    it('activates for minify with no jvmargs and omits the jvmargs key', () => {
+        expect(resolve({ enableMinifyInReleaseBuilds: true })).toEqual({
+            enableMinifyInReleaseBuilds: true,
+            enableShrinkResourcesInReleaseBuilds: false,
+        });
+    });
 });

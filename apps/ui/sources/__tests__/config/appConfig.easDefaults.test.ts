@@ -75,6 +75,9 @@ function withCleanEnv<T>(fn: () => T): T {
         'EX_UPDATES_NATIVE_DEBUG',
         'EXPO_PUBLIC_HAPPIER_SYNC_TUNING_JSON',
         'HAPPIER_SYNC_TUNING_JSON',
+        'HAPPIER_ANDROID_ENABLE_MINIFY',
+        'HAPPIER_ANDROID_ENABLE_SHRINK_RESOURCES',
+        'HAPPIER_ANDROID_GRADLE_JVMARGS',
     ] as const;
 
     const previous: Partial<Record<(typeof keys)[number], string | undefined>> = {};
@@ -482,5 +485,35 @@ describe('app.config.js', () => {
         expect(exp.ios?.infoPlist?.NSPhotoLibraryUsageDescription).toBe(
             'Local override: access photos for sharing.',
         );
+    });
+
+    function findAndroidGradlePropsPlugin(exp: ReturnType<typeof getPublicConfig>) {
+        return (exp.plugins ?? []).find(
+            (entry: any) =>
+                Array.isArray(entry) &&
+                entry[1] &&
+                typeof entry[1] === 'object' &&
+                ('gradleJvmArgs' in entry[1] || 'enableMinifyInReleaseBuilds' in entry[1]),
+        ) as [unknown, Record<string, unknown>] | undefined;
+    }
+
+    it('does not add the Android gradle-properties (shrinker) plugin by default', () => {
+        const exp = withCleanEnv(() => getPublicConfig());
+        expect(findAndroidGradlePropsPlugin(exp)).toBeUndefined();
+    });
+
+    it('raises the Gradle heap via the shrinker plugin when only HAPPIER_ANDROID_GRADLE_JVMARGS is set (unminified debug-APK dexing OOM fix)', () => {
+        const exp = withCleanEnv(() => {
+            process.env.APP_ENV = 'development';
+            process.env.HAPPIER_ANDROID_GRADLE_JVMARGS = '-Xmx6144m -XX:MaxMetaspaceSize=1024m';
+            return getPublicConfig();
+        });
+
+        const entry = findAndroidGradlePropsPlugin(exp);
+        expect(entry?.[1]).toEqual({
+            enableMinifyInReleaseBuilds: false,
+            enableShrinkResourcesInReleaseBuilds: false,
+            gradleJvmArgs: '-Xmx6144m -XX:MaxMetaspaceSize=1024m',
+        });
     });
 });

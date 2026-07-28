@@ -121,18 +121,17 @@ const expoBuildPropertiesPlugin = [
         },
     },
 ];
-const shouldUseAndroidReleaseShrinkerPlugin =
-    androidEnableMinifyInReleaseBuilds || androidEnableShrinkResourcesInReleaseBuilds;
-
-const androidReleaseShrinkerPlugin = shouldUseAndroidReleaseShrinkerPlugin
-    ? [
-        require("./plugins/withAndroidReleaseShrinker.js"),
-        {
-            enableMinifyInReleaseBuilds: androidEnableMinifyInReleaseBuilds === true,
-            enableShrinkResourcesInReleaseBuilds: androidEnableShrinkResourcesInReleaseBuilds === true,
-            ...(androidGradleJvmArgsOverride ? { gradleJvmArgs: androidGradleJvmArgsOverride } : {}),
-        },
-    ]
+// The Gradle heap knob (HAPPIER_ANDROID_GRADLE_JVMARGS) activates this plugin on its own:
+// an unminified debug APK still merges every library's dex and can OOM D8, so debug/CI
+// builds must raise org.gradle.jvmargs without enabling R8 minify/shrink.
+const withAndroidReleaseShrinkerPlugin = require("./plugins/withAndroidReleaseShrinker.js");
+const androidReleaseShrinkerProps = withAndroidReleaseShrinkerPlugin.resolveGradlePropertiesPluginProps({
+    enableMinifyInReleaseBuilds: androidEnableMinifyInReleaseBuilds,
+    enableShrinkResourcesInReleaseBuilds: androidEnableShrinkResourcesInReleaseBuilds,
+    gradleJvmArgs: androidGradleJvmArgsOverride,
+});
+const androidReleaseShrinkerPlugin = androidReleaseShrinkerProps
+    ? [withAndroidReleaseShrinkerPlugin, androidReleaseShrinkerProps]
     : null;
 const appVariant = appEnvironmentConfig.logicalVariant;
 const appIdentityVariant = appEnvironmentConfig.id;

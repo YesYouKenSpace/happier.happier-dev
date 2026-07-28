@@ -51,6 +51,34 @@ function applyAndroidReleaseShrinkerSettingsToGradleProperties(
 }
 
 /**
+ * Decide whether the gradle.properties plugin should run and with what options.
+ *
+ * The heap knob (`gradleJvmArgs`) is intentionally independent of minify/shrink: an
+ * unminified debug APK still merges every library's dex and can OOM D8, so a debug/CI
+ * build needs to raise `org.gradle.jvmargs` without enabling R8. Returns `null` when no
+ * knob is requested so callers can omit the plugin entirely.
+ */
+function resolveGradlePropertiesPluginProps({
+  enableMinifyInReleaseBuilds = false,
+  enableShrinkResourcesInReleaseBuilds = false,
+  gradleJvmArgs = '',
+} = {}) {
+  const jvmArgs = typeof gradleJvmArgs === 'string' ? gradleJvmArgs.trim() : '';
+  const active =
+    enableMinifyInReleaseBuilds === true ||
+    enableShrinkResourcesInReleaseBuilds === true ||
+    jvmArgs.length > 0;
+  if (!active) {
+    return null;
+  }
+  return {
+    enableMinifyInReleaseBuilds: enableMinifyInReleaseBuilds === true,
+    enableShrinkResourcesInReleaseBuilds: enableShrinkResourcesInReleaseBuilds === true,
+    ...(jvmArgs ? { gradleJvmArgs: jvmArgs } : {}),
+  };
+}
+
+/**
  * Configure Android release build shrinker settings (R8 + resource shrinking) via `android/gradle.properties`.
  *
  * We do this with a local plugin instead of relying on third-party config plugins because
@@ -67,5 +95,7 @@ withAndroidReleaseShrinker.applyAndroidReleaseShrinkerSettingsToGradleProperties
   applyAndroidReleaseShrinkerSettingsToGradleProperties;
 
 withAndroidReleaseShrinker.upsertGradleProperty = upsertGradleProperty;
+
+withAndroidReleaseShrinker.resolveGradlePropertiesPluginProps = resolveGradlePropertiesPluginProps;
 
 module.exports = withAndroidReleaseShrinker;
