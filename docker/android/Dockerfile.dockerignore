@@ -1,0 +1,39 @@
+# Dedicated ignore for docker/android/Dockerfile (BuildKit uses this INSTEAD of the root
+# .dockerignore). Context is the repo root. Keep source + manifests + yarn.lock + patches +
+# scripts; drop host-native, generated, and heavy dirs so the clean in-container install/build
+# is correct and the context stays small.
+
+.git
+.github
+
+# Host-native installs (must be reinstalled for linux in-container)
+**/node_modules
+
+# Generated native APP projects (expo prebuild regenerates these in-container).
+# Scope to the app dirs only: **/android would wrongly drop packages/*/android native-module
+# source (audio-stream-native, sherpa-native) and this build's docker/android/ files.
+/android
+/ios
+apps/*/android
+apps/*/ios
+**/.expo
+**/.expo-shared
+
+# Build outputs / caches
+**/dist
+**/.gradle
+**/.turbo
+**/.next
+**/.tmp
+.tmp
+.tmp-home
+**/coverage
+**/*.log
+
+# Local/editor/agent scratch
+.DS_Store
+.idea
+.vscode
+.superpowers
+graphify-out
+demos
