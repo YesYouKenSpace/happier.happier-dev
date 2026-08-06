@@ -117,6 +117,7 @@ _.env.pipeline.production.local
 /package-lock.json
 /eas.json
 **/.happier/
+.direnv/
 
 # Local probe/debug scratch files
 /apps/cli/tmp-*
