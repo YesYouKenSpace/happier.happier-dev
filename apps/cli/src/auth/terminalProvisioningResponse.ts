@@ -26,7 +26,7 @@ export function readTerminalPairingRequirement(
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): TerminalPairingRequirement | null {
   const raw = String(env[TERMINAL_PAIRING_REQUIRE_ENV] ?? '').trim().toLowerCase();
-  if (!raw) return null;
+  if (!raw) return 'v3';
   if (raw === 'v3') return 'v3';
   throw new Error(
     `Invalid ${TERMINAL_PAIRING_REQUIRE_ENV} value "${raw}". Supported values: v3`,
