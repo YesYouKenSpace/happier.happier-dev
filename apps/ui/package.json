@@ -165,7 +165,7 @@
     "@xterm/addon-web-links": "^0.11.0",
     "@xterm/addon-webgl": "^0.18.0",
     "@xterm/xterm": "^5.5.0",
-    "axios": "^1.10.0",
+    "axios": "^1.18.0",
     "babel-plugin-module-resolver": "^5.0.2",
     "babel-plugin-transform-remove-console": "^6.9.4",
     "color": "^5.0.0",
@@ -251,12 +251,12 @@
     "socket.io-client": "^4.8.1",
     "textarea-caret": "^3.1.0",
     "uuid": "^11.1.0",
-    "vitest": "^3.2.4",
+    "vitest": "^3.2.6",
     "zod": "4.3.6",
     "zustand": "^5.0.6"
   },
   "devDependencies": {
-    "@babel/core": "^7.25.2",
+    "@babel/core": "^7.29.6",
     "@expo/config-plugins": "~54.0.1",
     "@expo/ngrok": "^4.1.0",
     "@material/material-color-utilities": "^0.3.0",

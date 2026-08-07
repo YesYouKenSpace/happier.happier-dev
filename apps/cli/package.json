@@ -166,7 +166,7 @@
     "fastify": "^5.7.3",
     "fastify-type-provider-zod": "6.1.0",
     "http-proxy": "^1.18.1",
-    "http-proxy-middleware": "^3.0.5",
+    "http-proxy-middleware": "^4.2.0",
     "https-proxy-agent": "^7.0.6",
     "ink": "^6.5.1",
     "@homebridge/node-pty-prebuilt-multiarch": "^0.13.1",
@@ -177,7 +177,7 @@
     "qrcode-terminal": "^0.12.0",
     "react": "^19.2.0",
     "react-devtools-core": "^6.1.5",
-    "sharp": "^0.34.3",
+    "sharp": "^0.35.3",
     "socket.io-client": "^4.8.1",
     "tar": "^7.5.8",
     "tmp": "^0.2.5",
@@ -199,7 +199,7 @@
     "tsx": "^4.20.6",
     "@typescript/native": "npm:typescript@7.0.2",
     "typescript": "5.9.3",
-    "vitest": "^3.2.4"
+    "vitest": "^4.1.10"
   },
   "resolutions": {
     "whatwg-url": "14.2.0",
