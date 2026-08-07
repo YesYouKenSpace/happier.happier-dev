@@ -132,6 +132,7 @@
     "// ==== Development Linking ====": "",
     "link:dev": "node scripts/link-dev.cjs",
     "unlink:dev": "node scripts/link-dev.cjs unlink",
+    "link:local": "bash scripts/link-happier-local.sh",
     "prepack": "yarn -s build && node scripts/syncPackageDist.mjs && node scripts/bundleWorkspaceDeps.mjs",
     "postpack": "node scripts/postpack/patchPackedTarballForBun.mjs"
   },
