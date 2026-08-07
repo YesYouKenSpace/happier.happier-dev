@@ -153,6 +153,7 @@
     "server:start:light": "yarn --cwd apps/server start:light",
     "cli": "yarn workspace @happier-dev/cli dev",
     "cli:build": "yarn workspace @happier-dev/cli build",
+    "cli:link": "yarn workspace @happier-dev/cli link:local",
     "cli:start": "yarn workspace @happier-dev/cli start",
     "cli:doctor": "yarn workspace @happier-dev/cli doctor",
     "stack:build": "yarn workspace @happier-dev/stack build",
