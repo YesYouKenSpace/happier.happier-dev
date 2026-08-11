@@ -254,6 +254,7 @@ export function planDaemonServiceInstall(params: Readonly<{
   nodePath: string;
   entryPath: string;
   uid?: number;
+  nodeExtraCaCerts?: string;
 }>): DaemonServiceInstallPlan {
   const instanceId = sanitizeServiceInstanceId(params.instanceId);
   const channel: PublicReleaseRingId = params.channel ?? 'stable';
@@ -274,6 +275,7 @@ export function planDaemonServiceInstall(params: Readonly<{
   const unitLabel = resolveDaemonServiceSystemdUnitLabel(instanceId, channel, targetMode);
   const unitName = resolveDaemonServiceSystemdUnitName(instanceId, channel, targetMode);
   const programArgs = buildDaemonServiceProgramArgs({ nodePath: params.nodePath, entryPath: params.entryPath });
+  const nodeExtraCaCerts = (params.nodeExtraCaCerts ?? process.env.NODE_EXTRA_CA_CERTS ?? '').trim();
   const baseEnv: Record<string, string> = {
     HAPPIER_HOME_DIR: params.happierHomeDir,
     HAPPIER_PUBLIC_RELEASE_CHANNEL: publicReleaseChannel,
@@ -283,6 +285,11 @@ export function planDaemonServiceInstall(params: Readonly<{
     HAPPIER_NO_BROWSER_OPEN: '1',
     HAPPIER_DAEMON_WAIT_FOR_AUTH: '1',
     HAPPIER_DAEMON_WAIT_FOR_AUTH_TIMEOUT_MS: '0',
+    // Carry the installing environment's extra CA bundle so the background daemon can complete
+    // TLS to the relay behind a TLS-inspecting proxy (e.g. Zscaler); Node reads this at startup.
+    // Resolved here (the single env owner) so every planDaemonServiceInstall call site — install,
+    // expected-definition comparison, and repair — stays consistent without per-caller wiring.
+    ...(nodeExtraCaCerts ? { NODE_EXTRA_CA_CERTS: nodeExtraCaCerts } : {}),
   };
   const pinnedTargetEnv: Record<string, string> = targetMode === 'default-following'
     ? {}

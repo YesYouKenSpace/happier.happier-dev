@@ -37,6 +37,7 @@ export function buildClaudeSubprocessEnv(params?: Readonly<{
     'NO_PROXY',
     'SSL_CERT_FILE',
     'SSL_CERT_DIR',
+    'NODE_EXTRA_CA_CERTS',
     '__CF_USER_TEXT_ENCODING',
     'HAPPIER_E2E_FAKE_CLAUDE_LOG',
     'HAPPIER_E2E_FAKE_CLAUDE_SESSION_ID',
