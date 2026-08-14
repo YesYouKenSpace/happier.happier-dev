@@ -28,6 +28,9 @@ RUN mkdir -p apps/ui apps/server apps/cli apps/website apps/docs packages/agents
  COPY packages/audio-stream-native/package.json packages/audio-stream-native/
  COPY packages/sherpa-native/package.json packages/sherpa-native/
 COPY scripts/pipeline/expo/eas-postinstall.mjs scripts/pipeline/expo/
+# apps/ui/package.json runs this as its postinstall hook, so yarn needs it during install.
+# It self-disables here: apps/ui/tools/postinstall.mjs is absent in this minimal context.
+COPY apps/ui/tools/postinstall/runUiPostinstall.cjs apps/ui/tools/postinstall/
 
 COPY scripts/ci/yarn-install-with-retry.sh /usr/local/bin/yarn-install-with-retry
 RUN chmod +x /usr/local/bin/yarn-install-with-retry
@@ -62,6 +65,9 @@ RUN mkdir -p apps/ui apps/server apps/cli apps/website apps/docs packages/agents
  COPY packages/audio-stream-native/package.json packages/audio-stream-native/
  COPY packages/sherpa-native/package.json packages/sherpa-native/
 COPY scripts/pipeline/expo/eas-postinstall.mjs scripts/pipeline/expo/
+# apps/ui/package.json runs this as its postinstall hook, so yarn needs it during install.
+# It self-disables here: apps/ui/tools/postinstall.mjs is absent in this minimal context.
+COPY apps/ui/tools/postinstall/runUiPostinstall.cjs apps/ui/tools/postinstall/
 
 COPY scripts/ci/yarn-install-with-retry.sh /usr/local/bin/yarn-install-with-retry
 RUN chmod +x /usr/local/bin/yarn-install-with-retry
@@ -94,6 +100,9 @@ RUN mkdir -p apps/ui apps/server apps/cli apps/website apps/docs packages/agents
  COPY packages/audio-stream-native/package.json packages/audio-stream-native/
  COPY packages/sherpa-native/package.json packages/sherpa-native/
 COPY scripts/pipeline/expo/eas-postinstall.mjs scripts/pipeline/expo/
+# apps/ui/package.json runs this as its postinstall hook, so yarn needs it during install.
+# It self-disables here: apps/ui/tools/postinstall.mjs is absent in this minimal context.
+COPY apps/ui/tools/postinstall/runUiPostinstall.cjs apps/ui/tools/postinstall/
 
 COPY scripts/ci/yarn-install-with-retry.sh /usr/local/bin/yarn-install-with-retry
 RUN chmod +x /usr/local/bin/yarn-install-with-retry
