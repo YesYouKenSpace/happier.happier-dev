@@ -26,13 +26,13 @@ jobs:
     steps:
       - name: Create GitHub App token
         id: app_token
-        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           app-id: ${{ vars.ROADMAP_BOT_APP_ID || secrets.ROADMAP_BOT_APP_ID }}
           private-key: ${{ secrets.ROADMAP_BOT_PRIVATE_KEY }}
 
       - name: Sync roadmap labels to project fields
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           PROJECT_ORG: happier-dev
           PROJECT_NUMBER: "1"
