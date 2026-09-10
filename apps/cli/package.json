@@ -158,12 +158,12 @@
     "@types/tmp": "^0.2.6",
     "ai": "^5.0.107",
     "archiver": "^7.0.1",
-    "axios": "^1.13.2",
+    "axios": "^1.18.0",
     "chalk": "^5.6.2",
     "cross-spawn": "^7.0.6",
     "diff": "^8.0.2",
     "expo-server-sdk": "^3.15.0",
-    "fastify": "^5.7.3",
+    "fastify": "^5.12.1",
     "fastify-type-provider-zod": "6.1.0",
     "http-proxy": "^1.18.1",
     "http-proxy-middleware": "^3.0.5",
@@ -177,7 +177,7 @@
     "qrcode-terminal": "^0.12.0",
     "react": "^19.2.0",
     "react-devtools-core": "^6.1.5",
-    "sharp": "^0.34.3",
+    "sharp": "^0.35.4",
     "socket.io-client": "^4.8.1",
     "tar": "^7.5.8",
     "tmp": "^0.2.5",
@@ -199,7 +199,7 @@
     "tsx": "^4.20.6",
     "@typescript/native": "npm:typescript@7.0.2",
     "typescript": "5.9.3",
-    "vitest": "^3.2.4"
+    "vitest": "^5.0.0"
   },
   "resolutions": {
     "whatwg-url": "14.2.0",
