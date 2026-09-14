@@ -569,6 +569,7 @@ export class ApiSessionClient extends EventEmitter {
     private readonly token: string;
     readonly sessionId: string;
     private metadata: Metadata | null;
+    private runtimeWorkingDirectory: string | null = null;
     private metadataVersion: number;
     private sessionSocketMachineId: string | undefined;
     private agentState: AgentState | null;
@@ -1092,12 +1093,13 @@ export class ApiSessionClient extends EventEmitter {
 
         registerExecutionRunHandlers(this.rpcHandlerManager, {
             sessionId: this.sessionId,
-            cwd: this.metadata?.path ?? process.cwd(),
+            cwd: this.resolveWorkingDirectory(),
+            resolveCwd: () => this.resolveWorkingDirectory(),
             serverUrl: configuration.serverUrl,
             parentProvider,
             createBackend: ({ runId, backendId, backendTarget, permissionMode, modelId, sessionConfigOptionOverrides, accountSettings, start, connectedServicesEnv, connectedServicesCleanup }) =>
                 createExecutionRunBackend({
-                    cwd: this.metadata?.path ?? process.cwd(),
+                    cwd: this.resolveWorkingDirectory(),
                     ...(runId ? { runId } : {}),
                     backendId,
                     backendTarget,
@@ -1150,10 +1152,11 @@ export class ApiSessionClient extends EventEmitter {
         });
 
         registerEphemeralTaskHandlers(this.rpcHandlerManager, {
-          workingDirectory: this.metadata?.path ?? process.cwd(),
+          workingDirectory: this.resolveWorkingDirectory(),
+          resolveWorkingDirectory: () => this.resolveWorkingDirectory(),
           createBackend: ({ backendId, permissionMode, backendTarget }) =>
             createExecutionRunBackend({
-              cwd: this.metadata?.path ?? process.cwd(),
+              cwd: this.resolveWorkingDirectory(),
               backendId,
               permissionMode,
               ...(backendTarget ? { backendTarget } : {}),
@@ -5690,6 +5693,16 @@ export class ApiSessionClient extends EventEmitter {
      */
     getMetadataSnapshot(): Metadata | null {
         return this.metadata;
+    }
+
+    setRuntimeWorkingDirectory(directory: string): void {
+        const normalized = directory.trim();
+        if (!normalized) return;
+        this.runtimeWorkingDirectory = normalized;
+    }
+
+    private resolveWorkingDirectory(): string {
+        return this.runtimeWorkingDirectory ?? this.metadata?.path ?? process.cwd();
     }
 
     /**

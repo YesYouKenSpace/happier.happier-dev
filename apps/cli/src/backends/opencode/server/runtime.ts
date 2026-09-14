@@ -3998,6 +3998,7 @@ export function createOpenCodeServerRuntime(params: {
             if (c.setDirectoryOverride(sessionDirectory)) {
               resetServerConnectedReadiness();
             }
+            params.session.setRuntimeWorkingDirectory(sessionDirectory);
           } catch {
             // non-fatal
           }
@@ -4065,6 +4066,7 @@ export function createOpenCodeServerRuntime(params: {
           if (c.setDirectoryOverride(createdDirectory)) {
             resetServerConnectedReadiness();
           }
+          params.session.setRuntimeWorkingDirectory(createdDirectory);
         } catch {
           // non-fatal
         }

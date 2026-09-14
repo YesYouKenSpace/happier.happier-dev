@@ -297,6 +297,7 @@ function createFakeSession(sessionId = 'happy_sess_opencode') {
     sendUserTextMessageCommitted: vi.fn(async (_input?: unknown) => {}),
     sendAgentMessageCommitted: vi.fn(async (_input?: unknown) => {}),
     ensureMetadataSnapshot: vi.fn(async () => ({ ok: true })),
+    setRuntimeWorkingDirectory: vi.fn(),
     getMetadataSnapshot: () => meta,
     updateMetadata: vi.fn(async (updater: (prev: any) => any) => {
       const next = updater(meta);
@@ -1423,6 +1424,7 @@ describe('createOpenCodeServerRuntime', () => {
     await runtime.startOrLoad({ resumeId: 'ses_remote' });
     expect(client.setDirectoryOverride).toHaveBeenCalledWith('/correct');
     expect(client.__getDirectoryOverride()).toBe('/correct');
+    expect(session.setRuntimeWorkingDirectory).toHaveBeenCalledWith('/correct');
   });
 
   it('updates resumed OpenCode session permissions before continuing prompts', async () => {
@@ -1745,6 +1747,7 @@ describe('createOpenCodeServerRuntime', () => {
     await runtime.startOrLoad({});
     expect(client.setDirectoryOverride).toHaveBeenCalledWith('/created');
     expect(client.__getDirectoryOverride()).toBe('/created');
+    expect(session.setRuntimeWorkingDirectory).toHaveBeenCalledWith('/created');
   });
 
   it('creates a session with the safe-yolo ruleset when permission mode is safe-yolo', async () => {

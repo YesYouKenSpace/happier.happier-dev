@@ -138,6 +138,25 @@ describe('ApiSessionClient execution-run backend wiring', () => {
     await client.close();
   });
 
+  it('uses the provider runtime working directory for execution-run backends after resume', async () => {
+    const { ApiSessionClient } = await import('./sessionClient');
+    const client = new ApiSessionClient('tok', createPlainSessionFixture({ id: 's1', metadata: createTestMetadata({ path: '/tmp/original' }) }));
+
+    client.setRuntimeWorkingDirectory('/tmp/resumed-opencode');
+
+    expect(sessionSocketStubState.executionRunHandlerContext.resolveCwd()).toBe('/tmp/resumed-opencode');
+    sessionSocketStubState.executionRunHandlerContext.createBackend({
+      backendId: 'opencode',
+      backendTarget: { kind: 'builtInAgent', agentId: 'opencode' },
+      permissionMode: 'read_only',
+    });
+    expect(sessionSocketStubState.createExecutionRunBackendMock).toHaveBeenCalledWith(expect.objectContaining({
+      cwd: '/tmp/resumed-opencode',
+    }));
+
+    await client.close();
+  });
+
   it('routes execution-run completion through the canonical Session user-message ingress', async () => {
     const { ApiSessionClient } = await import('./sessionClient');
     const client = new ApiSessionClient('tok', createPlainSessionFixture({ id: 's1', metadata: createTestMetadata({ path: '/tmp/project' }) }));

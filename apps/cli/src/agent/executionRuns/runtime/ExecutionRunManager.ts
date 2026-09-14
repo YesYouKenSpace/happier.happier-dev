@@ -92,7 +92,7 @@ async function awaitExecutionRunObservation<T>(promise: Promise<T>, signal?: Abo
 
 export class ExecutionRunManager {
   private readonly parentProvider: ACPProvider;
-  private readonly cwd: string;
+  private readonly resolveCwd: () => string;
   private readonly createBackend: (opts: {
     runId?: string;
     backendId: string;
@@ -274,6 +274,7 @@ export class ExecutionRunManager {
   constructor(opts: Readonly<{
     parentProvider: ACPProvider;
     cwd: string;
+    resolveCwd?: () => string;
     createBackend: (opts: {
       runId?: string;
       backendId: string;
@@ -319,7 +320,7 @@ export class ExecutionRunManager {
     }>) => Promise<readonly string[]>;
   }>) {
     this.parentProvider = opts.parentProvider;
-    this.cwd = opts.cwd;
+    this.resolveCwd = opts.resolveCwd ?? (() => opts.cwd);
     this.createBackend = opts.createBackend;
     this.sendAcp = opts.sendAcp;
     this.streamedTranscriptSession = opts.streamedTranscriptSession ?? null;
@@ -369,7 +370,7 @@ export class ExecutionRunManager {
           settings,
           profileId,
           sessionId,
-          workingDirectory: workingDirectory ?? this.cwd,
+          workingDirectory: workingDirectory ?? this.resolveCwd(),
         });
       },
       responseTimeoutMs: configuration.voiceAgentResponseTimeoutMs,

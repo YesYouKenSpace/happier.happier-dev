@@ -68,6 +68,7 @@ export function registerExecutionRunHandlers(
   ctx: Readonly<{
     sessionId: string;
     cwd: string;
+    resolveCwd?: () => string;
     serverUrl?: string;
     parentProvider: ACPProvider;
     createBackend: (opts: {
@@ -114,6 +115,7 @@ export function registerExecutionRunHandlers(
     resolveAccountSettings?: () => Promise<Record<string, unknown> | null> | Record<string, unknown> | null;
   }>,
 ): void {
+  const resolveCwd = ctx.resolveCwd ?? (() => ctx.cwd);
   const policy = resolveExecutionRunPolicy({
     defaults: {
       // Centralized configuration is the only source of truth for execution-run defaults.
@@ -131,6 +133,7 @@ export function registerExecutionRunHandlers(
   const manager = new ExecutionRunManager({
     parentProvider: ctx.parentProvider,
     cwd: ctx.cwd,
+    resolveCwd,
     createBackend: ctx.createBackend,
     sendAcp: ctx.sendAcp,
     streamedTranscriptSession: ctx.streamedTranscriptSession,
@@ -152,7 +155,7 @@ export function registerExecutionRunHandlers(
         backendTarget: params.backendTarget,
         connectedServices: params.connectedServices,
         credentials: await readCredentials().catch(() => null),
-        cwd: ctx.cwd,
+        cwd: resolveCwd(),
         sessionId: params.sessionId,
       }),
   });
@@ -249,7 +252,7 @@ export function registerExecutionRunHandlers(
       let preflight;
       try {
         preflight = await preflightCodeRabbitReviewScope({
-          cwd: ctx.cwd,
+          cwd: resolveCwd(),
           intentInput: parsed.data.intentInput,
           maxEligibleFiles: codeRabbitConfig.maxEligibleFiles,
         });
@@ -317,7 +320,7 @@ export function registerExecutionRunHandlers(
               return null;
             }
           })(),
-          cwd: ctx.cwd,
+          cwd: resolveCwd(),
           sessionId: ctx.sessionId,
         });
       } catch (error) {
@@ -343,7 +346,7 @@ export function registerExecutionRunHandlers(
             parsed.data.replay.strategy === 'summary_plus_recent' ? 'summary_plus_recent' : 'recent_messages';
           const replaySeed = await resolveReplaySeedDraft({
             credentials,
-            cwd: ctx.cwd,
+            cwd: resolveCwd(),
             source: {
               kind: 'voice_session.v1',
               previousSessionId: parsed.data.replay.previousSessionId,
