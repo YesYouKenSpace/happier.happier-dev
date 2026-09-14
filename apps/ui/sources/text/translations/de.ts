@@ -6548,6 +6548,7 @@ export const de: TranslationStructure = {
             replaceAll: 'Alle ersetzen',
             summaryEdits: ({ count }: { count: number }) => `${count} Änderung${count === 1 ? '' : 's'}`,
         },
+        subAgentTitle: ({ label }: { label: string }) => `${label} Agent`,
         names: {
             task: 'Aufgabe',
             subAgent: 'Subagent',

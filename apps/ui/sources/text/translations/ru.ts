@@ -6954,6 +6954,7 @@ export const ru: TranslationStructure = {
       summaryEdits: ({ count }: { count: number }) =>
         `${count} ${plural({ count, one: "правка", few: "правки", many: "правок" })}`,
     },
+    subAgentTitle: ({ label }: { label: string }) => `${label} Агент`,
     names: {
       task: "Задача",
       subAgent: "Субагент",

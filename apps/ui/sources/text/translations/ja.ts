@@ -7257,6 +7257,7 @@ localTailscale: {
       replaceAll: "すべて置換",
       summaryEdits: ({ count }: { count: number }) => `${count}件の編集`,
     },
+    subAgentTitle: ({ label }: { label: string }) => `${label}エージェント`,
     names: {
       task: "タスク",
       subAgent: "サブエージェント",
