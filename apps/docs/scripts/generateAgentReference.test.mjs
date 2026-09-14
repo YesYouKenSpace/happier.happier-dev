@@ -4,7 +4,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { OUTPUT_PATH, collectDisplayNames, collectStability, renderAgentReferenceMarkdown } from './generateAgentReference.mjs';
+import {
+  OUTPUT_PATH,
+  collectDisplayNames,
+  collectStability,
+  renderAgentReferenceMarkdown,
+  toolsCell,
+} from './generateAgentReference.mjs';
 
 const AGENTS_DIST = join(
   import.meta.dirname, '..', '..', '..', 'packages', 'agents', 'dist', 'index.js',
@@ -169,4 +175,10 @@ test('display names also resolve through the generated plugin bundle', () => {
     }),
     { grok: 'Grok' },
   );
+});
+
+test('tool support preserves experimental native MCP declarations', () => {
+  assert.equal(toolsCell({ delivery: 'native_mcp', support: 'supported' }), 'Yes (`native_mcp`)');
+  assert.equal(toolsCell({ delivery: 'native_mcp', support: 'experimental' }), 'Experimental (`native_mcp`)');
+  assert.equal(toolsCell({ delivery: 'unsupported', support: 'unsupported' }), '—');
 });

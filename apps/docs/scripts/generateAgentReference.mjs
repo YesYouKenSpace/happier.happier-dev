@@ -368,6 +368,11 @@ function authCell(probe) {
   return bits.length ? bits.join(' or ') : 'Agent-managed';
 }
 
+export function toolsCell(tools) {
+  if (!tools || tools.support === 'unsupported' || tools.delivery === 'unsupported') return NO;
+  return `${supported(tools.support)} (\`${tools.delivery}\`)`;
+}
+
 function table(headers, rows) {
   const head = `| ${headers.join(' | ')} |`;
   const rule = `| ${headers.map(() => '---').join(' | ')} |`;
@@ -402,7 +407,7 @@ export async function renderAgentReferenceMarkdown({
   );
 
   const sessions = table(
-    ['Agent', 'Resume its own sessions', 'Fork a conversation', 'Fork from a message', 'Roll back', 'Declares session listing'],
+    ['Agent', 'Resume by agent session ID', 'Fork a conversation', 'Fork from a message', 'Roll back', 'Browse resume candidates'],
     ids.map((id) => {
       const c = core(id).sessionCapabilities;
       return [
@@ -441,7 +446,7 @@ export async function renderAgentReferenceMarkdown({
         supported(m.emitsSessionMedia),
         supported(m.acceptsImageInput),
         supported(m.nativeImageGeneration),
-        t?.support === 'supported' ? `Yes (\`${t.delivery}\`)` : NO,
+        toolsCell(t),
         cs.length ? cs.map((s) => `\`${s}\``).join(', ') : NO,
       ];
     }),
@@ -504,16 +509,22 @@ work everywhere. They do not.
 
 ${sessions}
 
-"Resume its own sessions" means Happier can reattach to a conversation the agent
-started outside Happier. "Fork" means the agent's own runtime can branch a
+"Resume by agent session ID" means Happier can pass a saved agent-owned ID back
+to that agent. It does not establish that the interactive terminal and ACP use
+the same session IDs. "Fork" means the agent's own runtime can branch a
 conversation; where it cannot, Happier's replay fork still works, because that
 is Happier's own mechanism rather than the agent's. See
 [Session forking](/sessions/session-forking).
 
-The last column is a declaration rather than a gate — nothing currently reads
-it, so it does not decide whether you can browse an agent's own sessions. What
-you can actually browse and import is described in
-[Continuing a session](/sessions/continuing-a-session).
+The last column means Happier offers a browser for the agent's resume
+candidates. FX and Kimi use the shared ACP \`session/list\` source; agents with
+dedicated session integrations use their own established sources. An ACP-listed
+result only starts a Happier-controlled resume, and the live handshake still
+decides whether the installed agent can list sessions. Listing does not
+establish terminal/ACP identity, live takeover, writer safety, transcript
+following, transcript import, or terminal attachment. See
+[Continuing a session](/sessions/continuing-a-session) for the distinct session
+continuation paths.
 
 ## Running a turn
 
@@ -554,9 +565,10 @@ some declarations to lag the runtime.
 
 ${auth}
 
-Agents whose background checks are manual only will not be re-probed on a timer;
-their status refreshes when you open the backend's settings screen or start a
-session. See [Agent authentication](/agents/provider-authentication).
+Agents whose background checks are manual only are not re-probed on a timer.
+Whether a manual refresh can resolve a status depends on the agent's configured
+status check; an agent-managed row may remain **Unknown** even when Happier can
+open its login flow. See [Agent authentication](/agents/provider-authentication).
 
 ## Related
 

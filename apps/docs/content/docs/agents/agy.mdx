@@ -12,10 +12,11 @@ terminal and login surface; Happier does not claim the two surfaces share sessio
 Install the interactive Agy CLI using the
 [official Antigravity CLI guide](https://antigravity.google/docs/cli/install),
 make sure `agy` is available on `PATH`, and authenticate on the machine where
-Happier runs. Auth status is read from your local Agy login; Happier never probes
-it ambiently in the background.
+Happier runs. Happier does not currently have an Agy status command to inspect,
+and never probes Agy ambiently in the background, so the app may continue to
+show **Unknown** after login.
 
-You can also open the native login flow and refresh its status from
+You can also open the interactive Agy login flow from
 **Settings → AI & Agents → AI backends → Agy**.
 
 ## Pinned ACP server install
@@ -36,13 +37,13 @@ happier agy
 ```
 
 Happier supports new sessions, vendor resume, follow-up messages, cancellation,
-live model changes through the provider-advertised ACP `model` config option, and execution
-runs. Models, modes, and MCP tools come from negotiated provider state rather than a
+live model changes through the agent-advertised ACP `model` config option, and execution
+runs. Models, modes, and MCP tools come from negotiated agent state rather than a
 static list.
 
 ## Permissions
 
-Happier sends no static permission-mode override for Agy and preserves your provider
+Happier sends no static permission-mode override for Agy and preserves your agent
 configuration unless you choose otherwise in the session.
 
 ## MCP tools

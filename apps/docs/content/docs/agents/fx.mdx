@@ -4,8 +4,8 @@ description: Run FX through Happier with ACP sessions, dynamic models and modes,
 ---
 
 Happier runs your locally installed FX CLI through `fx acp`. The interactive
-`fx` command remains available as the terminal surface, while Happier uses the
-same saved FX credentials and provider-owned session state for ACP sessions.
+`fx` command is a separate terminal surface. Happier does not claim that an
+interactive FX session and an ACP session share identity.
 
 ## What you need first
 
@@ -30,10 +30,12 @@ Happier supports fresh and resumed FX sessions, cancellation, execution runs,
 and FX's advertised model and mode controls. Happier does not maintain a
 separate static FX model list; the choices shown in the app come from ACP.
 
-When creating a new session, the **Resume** field can browse the sessions FX
-reports through ACP `session/list` for the selected directory and pick one to
-resume. These entries are resume-only: Happier does not attach to, follow, or
-import the transcript of a session that is still open in the `fx` terminal.
+When creating a new session, the **Resume** field can browse session IDs that
+`fx acp` reports through ACP `session/list` for the selected directory and pick
+one to resume. These entries are resume-only. Listing them does not establish
+that they are interactive-terminal sessions, and Happier does not provide live
+takeover, writer safety, transcript following or import, or terminal attachment
+for them.
 
 FX combines MCP servers selected for the Happier session with approved project
 servers. See [MCP servers](/extending/mcp-servers) for the shared setup flow.
