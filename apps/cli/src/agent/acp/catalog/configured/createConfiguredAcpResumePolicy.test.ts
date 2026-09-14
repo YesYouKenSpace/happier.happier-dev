@@ -45,7 +45,7 @@ describe('configured ACP resume policy', () => {
     expect(mocks.createAcpBackend).toHaveBeenCalledWith(expect.objectContaining({ declaredSessionLoadSupport: true }));
   });
 
-  it('publishes the provider session id only when the catalog declares load support', async () => {
+  it('publishes the provider session id only after catalog policy and runtime negotiation both allow load', async () => {
     let metadata: Record<string, unknown> = { existing: true };
     const session = {
       sessionId: 'happy-1',
@@ -58,9 +58,26 @@ describe('configured ACP resume policy', () => {
       onThinkingChange: () => {}, providerInputConsumer: {} as never,
     };
 
+    const negotiatedBackend = {
+      kind: 'backend',
+      getNegotiatedSessionLoadSupport: vi.fn(() => false),
+    };
+    mocks.createAcpBackend.mockReturnValueOnce(negotiatedBackend);
+
     createConfiguredAcpRuntime({ ...common, backend: backend(true) });
-    const loadIdentity = mocks.createAcpRuntime.mock.calls.at(-1)?.[0].sessionIdentity;
+    const runtimeOptions = mocks.createAcpRuntime.mock.calls.at(-1)?.[0];
+    const loadIdentity = runtimeOptions.sessionIdentity;
     expect(loadIdentity.kind).toBe('persist-bound');
+
+    // Static catalog policy alone is not runtime proof, including before the backend exists.
+    await loadIdentity.persistBound({ vendorSessionId: 'provider-1', generation: 0, operation: 'create' });
+    expect(metadata).toEqual({ existing: true });
+
+    await runtimeOptions.ensureBackend();
+    await loadIdentity.persistBound({ vendorSessionId: 'provider-1', generation: 0, operation: 'create' });
+    expect(metadata).toEqual({ existing: true });
+
+    negotiatedBackend.getNegotiatedSessionLoadSupport.mockReturnValue(true);
     await loadIdentity.persistBound({ vendorSessionId: 'provider-1', generation: 0, operation: 'create' });
     expect(metadata).toEqual({ existing: true, customAcpSessionId: 'provider-1' });
 
