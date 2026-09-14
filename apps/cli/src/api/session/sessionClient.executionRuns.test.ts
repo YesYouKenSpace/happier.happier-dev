@@ -138,6 +138,54 @@ describe('ApiSessionClient execution-run backend wiring', () => {
     await client.close();
   });
 
+  it('sends the canonical permission notification for an interactive execution-run request', async () => {
+    const { ApiClient } = await import('../api');
+    const api = await ApiClient.create({
+      token: 'tok',
+      encryption: { type: 'legacy', secret: new Uint8Array(32) },
+    });
+    const sendToAllDevicesAsync = vi.spyOn(api.push(), 'sendToAllDevicesAsync').mockResolvedValue();
+    const client = api.sessionSyncClient(
+      createPlainSessionFixture({ id: 's1', metadata: createTestMetadata({ path: '/tmp/project' }) }),
+    );
+    const agentState = { requests: {}, completedRequests: {} } as Record<string, any>;
+    vi.spyOn(client, 'getAgentStateSnapshot').mockImplementation(() => agentState as any);
+    vi.spyOn(client, 'updateAgentState').mockImplementation(async (updater) => {
+      Object.assign(agentState, updater(agentState as any));
+    });
+
+    sessionSocketStubState.executionRunHandlerContext.createBackend({
+      runId: 'run-1',
+      backendId: 'opencode',
+      backendTarget: { kind: 'builtInAgent', agentId: 'opencode' },
+      permissionMode: 'default',
+    });
+    const backendArgs = sessionSocketStubState.createExecutionRunBackendMock.mock.calls.at(-1)?.[0];
+    const pending = backendArgs.interactivePermissionHandler.handleToolCall(
+      'execution-run:run-1:occurrence-1:permission-1',
+      'bash',
+      { command: 'echo hi' },
+    );
+
+    await vi.waitFor(() => expect(sendToAllDevicesAsync).toHaveBeenCalledTimes(1));
+    expect(sendToAllDevicesAsync).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.stringContaining('asks permission to use bash'),
+      expect.objectContaining({
+        sessionId: 's1',
+        requestId: 'execution-run:run-1:occurrence-1:permission-1',
+      }),
+    );
+
+    await client.rpcHandlerManager.invokeLocal('permission', {
+      id: 'execution-run:run-1:occurrence-1:permission-1',
+      approved: false,
+      decision: 'denied',
+    });
+    await expect(pending).resolves.toEqual({ decision: 'denied' });
+    await client.close();
+  });
+
   it('uses the provider runtime working directory for execution-run backends after resume', async () => {
     const { ApiSessionClient } = await import('./sessionClient');
     const client = new ApiSessionClient('tok', createPlainSessionFixture({ id: 's1', metadata: createTestMetadata({ path: '/tmp/original' }) }));

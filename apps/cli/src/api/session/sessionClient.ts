@@ -44,6 +44,7 @@ import {
 } from '@/session/transport/http/sessionSystemRecordsHttp';
 import { createExecutionRunBackend } from '@/agent/executionRuns/runtime/createExecutionRunBackend';
 import { CodexLikePermissionHandler } from '@/agent/permissions/CodexLikePermissionHandler';
+import type { PermissionRequestPushSender } from '@/agent/permissions/BasePermissionHandler';
 import { SessionPermissionRpcRouter } from '@/agent/permissions/sessionPermissionRpcRouter';
 import { ExecutionBudgetRegistry } from '@/daemon/executionBudget/ExecutionBudgetRegistry';
 import { readCredentials, readAccountChangesCursor } from '@/persistence';
@@ -87,6 +88,10 @@ import type { SessionMessageCommitResult } from './sessionMessageCommitResult';
 
 export type SessionRuntimeActivityClientConfig = Readonly<{
     executionRunContributionHandle: SessionRuntimeActivityContributionHandle;
+}>;
+
+export type SessionPermissionNotificationConfig = Readonly<{
+    permissionRequestPushSender: PermissionRequestPushSender | null;
 }>;
 
 type SessionMessageCommitObservation = Readonly<{
@@ -930,6 +935,7 @@ export class ApiSessionClient extends EventEmitter {
             token: string,
             session: Session,
             runtimeActivity?: SessionRuntimeActivityClientConfig,
+            permissionNotifications?: SessionPermissionNotificationConfig,
         ) {
 	        super()
 	        this.token = token;
@@ -1004,6 +1010,10 @@ export class ApiSessionClient extends EventEmitter {
         this.executionRunPermissionHandler = new CodexLikePermissionHandler({
             session: this,
             logPrefix: '[ExecutionRun]',
+            pushSender: permissionNotifications?.permissionRequestPushSender ?? null,
+            getAccountSettings: () => getActiveAccountSettingsSnapshot()?.settings ?? null,
+            getAccountSettingsSecretsReadKeys: () =>
+                getActiveAccountSettingsSnapshot()?.settingsSecretsReadKeys ?? [],
         });
         const parentProvider = resolveSessionCatalogAgentId(this.metadata);
 

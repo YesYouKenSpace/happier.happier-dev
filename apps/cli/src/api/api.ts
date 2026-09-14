@@ -751,7 +751,9 @@ export class ApiClient {
     session: Session,
     runtimeActivity?: import('./session/sessionClient').SessionRuntimeActivityClientConfig,
   ): ApiSessionClient {
-    return new ApiSessionClient(this.credential.token, session, runtimeActivity);
+    return new ApiSessionClient(this.credential.token, session, runtimeActivity, {
+      permissionRequestPushSender: this.pushClient,
+    });
   }
 
   machineSyncClient(
