@@ -1564,6 +1564,12 @@ function mapExistingSessionAttachFailureToSpawnError(reason: import('./sessionEn
         errorCode: SPAWN_SESSION_ERROR_CODES.RESUME_MISSING_ENCRYPTION_KEY,
         errorMessage: 'Failed to open session encryption key for resume.',
       };
+    case 'clientE2eeRequired':
+      return {
+        type: 'error',
+        errorCode: SPAWN_SESSION_ERROR_CODES.INVALID_REQUEST,
+        errorMessage: 'This daemon requires end-to-end encryption and will not attach to a plaintext session.',
+      };
   }
 }
 

@@ -17,6 +17,7 @@ import { fetchSessionByIdCompat } from '@/session/transport/http/sessionsHttp';
 
 import type { Credentials } from '@/persistence';
 import { resolveExistingSessionAttachContext } from './resolveExistingSessionAttachContext';
+import { configuration } from '@/configuration';
 
 function deterministicRandomBytesFactory(): (length: number) => Uint8Array {
   let counter = 1;
@@ -70,6 +71,29 @@ describe('resolveExistingSessionAttachContext', () => {
       metadata: { flavor: 'codex', path: '/tmp', codexSessionId: 'vendor-plain-1' },
     });
     expect(vi.mocked(fetchSessionByIdCompat)).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a plaintext session before attaching when this client requires E2EE', async () => {
+    vi.mocked(fetchSessionByIdCompat).mockResolvedValueOnce(
+      createSessionRecordFixture({
+        id: 'sess_plain',
+        encryptionMode: 'plain',
+        metadata: JSON.stringify({ path: '/must-not-attach' }),
+        dataEncryptionKey: null,
+      }),
+    );
+    const previous = configuration.clientEncryptionRequirement;
+    Object.assign(configuration, { clientEncryptionRequirement: 'require_e2ee' });
+    try {
+      await expect(resolveExistingSessionAttachContext({
+        token: 't',
+        sessionId: 'sess_plain',
+        backendTarget: { kind: 'builtInAgent', agentId: 'codex' },
+        credentials: null,
+      })).resolves.toEqual({ ok: false, reason: 'clientE2eeRequired' });
+    } finally {
+      Object.assign(configuration, { clientEncryptionRequirement: previous });
+    }
   });
 
   it('resolves configured ACP ids only for the matching backend target', async () => {

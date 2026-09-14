@@ -39,4 +39,45 @@ describe('resolveSessionCreateEncryptionMode', () => {
     })).resolves.toMatchObject({ desiredSessionEncryptionMode: 'plain' });
     expect(axiosGetMock.mock.calls[0]?.[1]).not.toHaveProperty('timeout');
   });
+
+  it('rejects a plaintext-only server when this client requires E2EE', async () => {
+    fetchServerFeaturesSnapshotMock.mockResolvedValue({
+      status: 'ready',
+      features: { capabilities: { encryption: { storagePolicy: 'plaintext_only' } } },
+    });
+    const { configuration } = await import('@/configuration');
+    const previous = configuration.clientEncryptionRequirement;
+    Object.assign(configuration, { clientEncryptionRequirement: 'require_e2ee' });
+    const { resolveSessionCreateEncryptionMode } = await import('./resolveSessionCreateEncryptionMode');
+
+    try {
+      await expect(resolveSessionCreateEncryptionMode({
+        token: 'token',
+        serverBaseUrl: 'https://example.test',
+      })).rejects.toMatchObject({ code: 'CLIENT_E2EE_REQUIRED', retryable: false });
+    } finally {
+      Object.assign(configuration, { clientEncryptionRequirement: previous });
+    }
+  });
+
+  it('rejects a plaintext Account preference when this client requires E2EE', async () => {
+    fetchServerFeaturesSnapshotMock.mockResolvedValue({
+      status: 'ready',
+      features: { capabilities: { encryption: { storagePolicy: 'optional' } } },
+    });
+    axiosGetMock.mockResolvedValue({ status: 200, data: { mode: 'plain', updatedAt: 1 } });
+    const { configuration } = await import('@/configuration');
+    const previous = configuration.clientEncryptionRequirement;
+    Object.assign(configuration, { clientEncryptionRequirement: 'require_e2ee' });
+    const { resolveSessionCreateEncryptionMode } = await import('./resolveSessionCreateEncryptionMode');
+
+    try {
+      await expect(resolveSessionCreateEncryptionMode({
+        token: 'token',
+        serverBaseUrl: 'https://example.test',
+      })).rejects.toMatchObject({ code: 'CLIENT_E2EE_REQUIRED', retryable: false });
+    } finally {
+      Object.assign(configuration, { clientEncryptionRequirement: previous });
+    }
+  });
 });

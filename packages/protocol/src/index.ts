@@ -1176,6 +1176,14 @@ export {
 } from './sessionOrganization/index.js';
 
 export {
+  ClientEncryptionRequirementSchema,
+  combineClientEncryptionRequirements,
+  isAccountEncryptionModeAllowedByClientRequirement,
+  isSessionEncryptionModeAllowedByClientRequirement,
+  type ClientEncryptionRequirement,
+} from './encryption/clientEncryptionRequirement.js';
+
+export {
   isSessionEncryptionModeAllowedByStoragePolicy,
   isStoredContentKindAllowedForSessionByStoragePolicy,
   resolveEffectiveDefaultAccountEncryptionMode,

@@ -21,6 +21,7 @@ import {
   HAPPIER_REPLAY_SEED_MAX_CHARS,
   HAPPIER_REPLAY_SEED_MIN_CHARS,
   MAX_EXECUTION_RUN_OBSERVATION_TIMEOUT_SECONDS,
+  type ClientEncryptionRequirement,
 } from '@happier-dev/protocol'
 import packageJson from '../package.json'
 import type { PublicReleaseRingId } from '@happier-dev/release-runtime/releaseRings'
@@ -59,6 +60,15 @@ function resolveShellBridgeContextEnvMode(env: NodeJS.ProcessEnv): ShellBridgeCo
   const raw = String(env.HAPPIER_SHELL_BRIDGE_CONTEXT_ENV ?? '').trim().toLowerCase();
   if (raw === 'home' || raw === 'full') return raw;
   return 'off';
+}
+
+function resolveClientEncryptionRequirementEnv(env: NodeJS.ProcessEnv): ClientEncryptionRequirement {
+  const raw = String(env.HAPPIER_ENCRYPTION_REQUIREMENT ?? '').trim().toLowerCase();
+  if (!raw || raw === 'follow_account') return 'follow_account';
+  if (raw === 'require_e2ee') return 'require_e2ee';
+  throw new Error(
+    'Invalid HAPPIER_ENCRYPTION_REQUIREMENT; expected "follow_account" or "require_e2ee"',
+  );
 }
 
 /**
@@ -348,6 +358,7 @@ class Configuration {
   public readonly startupOverridesCacheMaxAgeMs: number
   // Shell-bridge command context env policy (default: off).
   public readonly shellBridgeContextEnvMode: ShellBridgeContextEnvMode
+  public readonly clientEncryptionRequirement: ClientEncryptionRequirement
 
   constructor() {
     // Check if we're running as daemon based on process args
@@ -397,6 +408,7 @@ class Configuration {
 
     this.activeServerDir = join(this.serversDir, this.activeServerId)
     this.shellBridgeContextEnvMode = resolveShellBridgeContextEnvMode(process.env)
+    this.clientEncryptionRequirement = resolveClientEncryptionRequirementEnv(process.env)
     this.legacyPrivateKeyFile = join(this.happyHomeDir, 'access.key')
     this.privateKeyFile = join(this.activeServerDir, 'access.key')
     this.installationIdentityFile = join(this.happyHomeDir, 'installation-identity.json')
