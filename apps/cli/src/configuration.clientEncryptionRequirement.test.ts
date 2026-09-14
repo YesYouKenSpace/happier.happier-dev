@@ -23,8 +23,14 @@ describe('configuration client encryption requirement', () => {
     return await import('./configuration');
   }
 
-  it('follows the Account setting when the environment override is absent', async () => {
+  it('defaults to require_e2ee when the environment override is absent (fork: secure by default)', async () => {
     const configMod = await loadWith(undefined);
+    configMod.reloadConfiguration();
+    expect(configMod.configuration.clientEncryptionRequirement).toBe('require_e2ee');
+  });
+
+  it('opts out to follow_account only when explicitly set', async () => {
+    const configMod = await loadWith(' follow_account ');
     configMod.reloadConfiguration();
     expect(configMod.configuration.clientEncryptionRequirement).toBe('follow_account');
   });

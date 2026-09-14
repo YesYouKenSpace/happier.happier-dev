@@ -64,7 +64,11 @@ function resolveShellBridgeContextEnvMode(env: NodeJS.ProcessEnv): ShellBridgeCo
 
 function resolveClientEncryptionRequirementEnv(env: NodeJS.ProcessEnv): ClientEncryptionRequirement {
   const raw = String(env.HAPPIER_ENCRYPTION_REQUIREMENT ?? '').trim().toLowerCase();
-  if (!raw || raw === 'follow_account') return 'follow_account';
+  // Fork override: secure by default. Unset defaults to require_e2ee (upstream defaults to
+  // follow_account). The relay this build talks to is untrusted, so plaintext storage must be
+  // an explicit opt-out: set HAPPIER_ENCRYPTION_REQUIREMENT=follow_account to defer to the Account.
+  if (!raw) return 'require_e2ee';
+  if (raw === 'follow_account') return 'follow_account';
   if (raw === 'require_e2ee') return 'require_e2ee';
   throw new Error(
     'Invalid HAPPIER_ENCRYPTION_REQUIREMENT; expected "follow_account" or "require_e2ee"',
