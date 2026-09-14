@@ -1328,6 +1328,12 @@ export function createAcpRuntime(params: {
               : accumulatedResponse;
             if (fullText.startsWith(reconciledText)) {
               deltaRaw = fullText.slice(reconciledText.length);
+            } else if (reconciledText.length > 0 && reconciledText.endsWith(fullText)) {
+              // Per-message authoritative snapshot (e.g. pi message_end) whose text was already
+              // delivered as deltas: the rest of the baseline belongs to earlier messages of the
+              // same turn when no provider boundary reset it, so the snapshot delivers nothing
+              // new and must not be re-emitted.
+              deltaRaw = '';
             } else {
               // Defensive: if a provider restarts and sends divergent fullText, restart snapshot reconciliation.
               if (fullTextScope === 'turn') {
