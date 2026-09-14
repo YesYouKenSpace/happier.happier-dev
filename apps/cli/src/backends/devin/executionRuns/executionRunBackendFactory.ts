@@ -17,6 +17,7 @@ export const executionRunBackendFactory: ExecutionRunBackendFactory = (options) 
     env: options.isolation?.env,
     permissionHandler: options.permissionHandler,
     permissionMode: permissionModeForExecutionRunPolicy(options.permissionMode),
+    ...(options.resolveMcpServers ? { resolveMcpServers: options.resolveMcpServers } : {}),
   });
 
   return withExecutionRunBackendModelOptions(backend, {

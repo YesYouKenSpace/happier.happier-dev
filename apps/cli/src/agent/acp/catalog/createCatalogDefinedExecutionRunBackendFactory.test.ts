@@ -25,6 +25,8 @@ describe('createCatalogDefinedExecutionRunBackendFactory', () => {
 
   it('defers catalog backend resolution until session launch so managed prerequisites can be ensured', async () => {
     const resolved = fakeBackend();
+    const mcpServers = { happier: { command: 'happier-mcp', args: ['bridge'] } };
+    const resolveMcpServers = vi.fn(async () => mcpServers);
     createCatalogAcpBackend.mockResolvedValue({ backend: resolved });
     const factory = createCatalogDefinedExecutionRunBackendFactory('agy');
     const backend = factory({
@@ -33,6 +35,7 @@ describe('createCatalogDefinedExecutionRunBackendFactory', () => {
       permissionMode: 'read_only',
       accountSettings: {},
       permissionHandler: { handleToolCall: vi.fn() },
+      resolveMcpServers,
     });
 
     expect(createCatalogAcpBackend).not.toHaveBeenCalled();
@@ -42,7 +45,9 @@ describe('createCatalogDefinedExecutionRunBackendFactory', () => {
       cwd: '/workspace',
       permissionMode: 'read-only',
       accountSettings: {},
+      mcpServers,
     }));
+    expect(resolveMcpServers).toHaveBeenCalledTimes(1);
   });
 
   it('shares one in-flight catalog resolution across concurrent launch calls', async () => {

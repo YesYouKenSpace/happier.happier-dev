@@ -26,13 +26,14 @@ function createLazyCatalogExecutionRunBackend(
 
   const resolveBackend = async (): Promise<ConfigurableCatalogBackend> => {
     if (!backendPromise) {
-      backendPromise = createCatalogAcpBackend(agentId, {
+      backendPromise = (async () => createCatalogAcpBackend(agentId, {
         cwd: options.cwd,
         env: options.isolation?.env,
         permissionHandler: options.permissionHandler,
         permissionMode: permissionModeForExecutionRunPolicy(options.permissionMode),
         accountSettings: options.accountSettings,
-      }).then(({ backend }) => {
+        mcpServers: await options.resolveMcpServers?.() ?? {},
+      }))().then(({ backend }) => {
         const resolved = backend as ConfigurableCatalogBackend;
         for (const handler of handlers) {
           resolved.onMessage(handler);

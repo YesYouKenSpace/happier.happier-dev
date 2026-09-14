@@ -53,4 +53,27 @@ describe('createDevinBackend', () => {
       mcpServers,
     });
   });
+
+  it('resolves execution-run MCP servers when preparing the Devin process launch', async () => {
+    const mcpServers = { happier: { command: 'happier-mcp', args: ['bridge'] } };
+    const resolveMcpServers = vi.fn(async () => mcpServers);
+    createDevinBackend({
+      cwd: '/workspace',
+      env: { DEVIN_CONFIG_DIR: '/isolated/devin' },
+      resolveMcpServers,
+    });
+
+    const calls = createCatalogDefinedAcpBackend.mock.calls as unknown as Array<[
+      string,
+      { prepareProcessLaunch?: () => Promise<unknown> },
+    ]>;
+    await calls[0]?.[1].prepareProcessLaunch?.();
+
+    expect(resolveMcpServers).toHaveBeenCalledTimes(1);
+    expect(prepareDevinMcpProcessLaunch).toHaveBeenCalledWith({
+      cwd: '/workspace',
+      processEnv: expect.objectContaining({ DEVIN_CONFIG_DIR: '/isolated/devin' }),
+      mcpServers,
+    });
+  });
 });

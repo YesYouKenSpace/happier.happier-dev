@@ -1,4 +1,4 @@
-import type { AgentBackend } from '@/agent/core/AgentBackend';
+import type { AgentBackend, McpServerConfig } from '@/agent/core/AgentBackend';
 import type { AcpPermissionHandler } from '@/agent/acp/AcpBackend';
 import type { AgentPromptPayload } from '@/agent/core/AgentPromptPayload';
 import type { AgentId } from '@happier-dev/agents';
@@ -54,6 +54,44 @@ function resolveExecutionRunAccountSettings(params: Readonly<{
   return normalizeAccountSettings(getActiveAccountSettingsSnapshot()?.settings ?? null);
 }
 
+type ExecutionRunMcpResolutionContext = Readonly<{
+  credentials?: Awaited<ReturnType<typeof readCredentials>> | null;
+  accountSettings?: Readonly<Record<string, unknown>> | null;
+}>;
+
+function createExecutionRunMcpServersResolver(opts: Readonly<{
+  cwd: string;
+  backendTarget?: BackendTargetRefV1;
+  accountSettings?: Readonly<Record<string, unknown>> | null;
+}>): (context?: ExecutionRunMcpResolutionContext) => Promise<Record<string, McpServerConfig>> {
+  let resolution: Promise<Record<string, McpServerConfig>> | null = null;
+  return (context = {}) => {
+    if (!resolution) {
+      resolution = (async () => {
+        const credentials = context.credentials ?? await readCredentials();
+        if (!credentials) return {};
+        const accountSettings = context.accountSettings
+          ?? opts.accountSettings
+          ?? normalizeAccountSettings((await bootstrapAccountSettingsContext({
+            credentials,
+            ...(opts.backendTarget ? { backendTarget: opts.backendTarget } : {}),
+            mode: 'fast',
+          })).settings);
+        if (!accountSettings) return {};
+        const machineId = normalizeNonEmptyString((await readSettings()).machineId);
+        if (!machineId) return {};
+        return (await resolveCustomHappierToolsContext({
+          credentials,
+          accountSettings,
+          machineId,
+          directory: opts.cwd,
+        })).mcpServers;
+      })();
+    }
+    return resolution;
+  };
+}
+
 function createLazyConfiguredAcpExecutionRunBackend(opts: Readonly<{
   cwd: string;
   backendTarget: BackendTargetRefV1;
@@ -62,6 +100,7 @@ function createLazyConfiguredAcpExecutionRunBackend(opts: Readonly<{
   runId?: string;
   credentials?: Awaited<ReturnType<typeof readCredentials>> | null;
   accountSettings?: Readonly<Record<string, unknown>> | null;
+  resolveMcpServers: (context?: ExecutionRunMcpResolutionContext) => Promise<Record<string, McpServerConfig>>;
   interactivePermissionHandler?: AcpPermissionHandler;
 }>): AgentBackend {
   const configuredBackendId = opts.backendTarget.kind === 'configuredAcpBackend'
@@ -107,15 +146,7 @@ function createLazyConfiguredAcpExecutionRunBackend(opts: Readonly<{
         accountSettings: settings,
         credentials,
       });
-      const machineId = normalizeNonEmptyString((await readSettings()).machineId);
-      const resolvedMcpServers = machineId
-        ? (await resolveCustomHappierToolsContext({
-            credentials,
-            accountSettings: settings,
-            machineId,
-            directory: opts.cwd,
-          })).mcpServers
-        : {};
+      const resolvedMcpServers = await opts.resolveMcpServers({ credentials, accountSettings: settings });
       const backend = createConfiguredAcpBackend({
         cwd: opts.cwd,
         backend: backendDefinition,
@@ -245,6 +276,11 @@ export function createExecutionRunBackend(opts: Readonly<{
       backendTarget: opts.backendTarget,
       accountSettings: opts.accountSettings,
     });
+    const resolveMcpServers = createExecutionRunMcpServersResolver({
+      cwd: opts.cwd,
+      ...(opts.backendTarget ? { backendTarget: opts.backendTarget } : {}),
+      accountSettings,
+    });
     if (accountSettings && opts.backendTarget?.kind === 'builtInAgent') {
       assertBackendEnabledByAccountSettings({
         agentId: opts.backendTarget.agentId as AgentId,
@@ -268,6 +304,7 @@ export function createExecutionRunBackend(opts: Readonly<{
         ...(runId ? { runId } : {}),
         credentials: null,
         accountSettings,
+        resolveMcpServers,
         interactivePermissionHandler: opts.interactivePermissionHandler,
       });
     }
@@ -345,6 +382,7 @@ export function createExecutionRunBackend(opts: Readonly<{
       ...(opts.sessionConfigOptionOverrides ? { sessionConfigOptionOverrides: opts.sessionConfigOptionOverrides } : {}),
       permissionMode: opts.permissionMode,
       accountSettings,
+      resolveMcpServers,
       permissionHandler,
       start: opts.start ?? null,
       ...(bundle ? { isolation: { env: bundle.env, settingsPath: bundle.settingsPath } } : {}),
