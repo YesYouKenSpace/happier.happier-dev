@@ -339,7 +339,6 @@ export function createOpenCodeServerRuntime(params: {
   let ensuredMcpServersForDirectory = false;
   let mcpServerRegistrationInFlight: Promise<void> | null = null;
   let mcpServerRegistrationRerunRequested = false;
-  const ensuredMcpServerNames = new Set<string>();
   const requiredMcpServerName = params.happierMcpAdmission.kind === 'required'
     ? 'happier'
     : null;
@@ -3858,7 +3857,6 @@ export function createOpenCodeServerRuntime(params: {
             `OpenCode MCP server "${serverName}" returned status "${registrationStatus.status}"${detail}`,
           );
         }
-        ensuredMcpServerNames.add(serverName);
         if (
           serverName === requiredMcpServerName
           && requiredMcpServerReadiness === requiredReadinessForRegistration
@@ -4473,18 +4471,10 @@ export function createOpenCodeServerRuntime(params: {
       omitCustomMessageIdForResumedSession = false;
       suppressSessionErrorAbortNotificationForSessionId = null;
       for (const key of Object.keys(configOverrides)) delete configOverrides[key];
+      // OpenCode owns MCP registrations per directory and server name. Another Happier session may
+      // have replaced the same name, so this session must not disconnect it during local teardown.
       invalidateMcpServersForCurrentDirectory();
       mcpServerRegistrationRerunRequested = false;
-      if (ensuredMcpServerNames.size > 0) {
-        try {
-          const c = await ensureClient();
-          const names = [...ensuredMcpServerNames];
-          ensuredMcpServerNames.clear();
-          await Promise.all(names.map(async (name) => await c.mcpDisconnect({ name }).catch(() => {})));
-        } catch {
-          ensuredMcpServerNames.clear();
-        }
-      }
       if (subscriptionAbort) {
         try {
           subscriptionAbort.abort();

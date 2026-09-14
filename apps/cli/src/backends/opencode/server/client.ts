@@ -247,7 +247,6 @@ export type OpenCodeServerRuntimeClient = Readonly<{
   appSkills: () => Promise<unknown[]>;
   providersList: () => Promise<ReadonlyArray<{ id: string; env?: readonly string[]; models?: Record<string, unknown> }>>;
   mcpAdd: (opts: { name: string; config: unknown }) => Promise<OpenCodeMcpStatus>;
-  mcpDisconnect: (opts: { name: string }) => Promise<void>;
   sessionPromptAsync: (opts: {
     sessionId: string;
     messageId?: string;
@@ -917,21 +916,6 @@ export async function createOpenCodeServerRuntimeClient(params: Readonly<{
         timeoutMs: httpTimeoutMs,
       });
       return readOpenCodeMcpStatus(response, serverName);
-    },
-    mcpDisconnect: async ({ name }) => {
-      const serverName = typeof name === 'string' ? name.trim() : '';
-      if (!serverName) return;
-      const api = await ensureApiGeneration();
-      if (api.kind === 'v2' && !api.legacyMcpCompatible) {
-        throw new Error('OpenCode V2 dynamic MCP is unavailable: this server does not expose the pinned legacy health and /mcp contracts');
-      }
-      await fetchJson<void>({
-        url: buildUrl(baseUrl, `/mcp/${encodeURIComponent(serverName)}/disconnect`, { directory: resolveDirectory() }),
-        method: 'POST',
-        headers,
-        body: {},
-        timeoutMs: httpTimeoutMs,
-      });
     },
     sessionPromptAsync: async ({ sessionId, messageId, parts, agent, model, variant, config }) => {
       const api = await ensureApiGeneration();

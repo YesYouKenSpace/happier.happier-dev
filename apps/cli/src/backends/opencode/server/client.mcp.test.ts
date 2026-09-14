@@ -98,25 +98,4 @@ describe('createOpenCodeServerRuntimeClient (MCP)', () => {
     });
   });
 
-  it('POSTs to /mcp/:name/disconnect with directory query', async () => {
-    const fetchSpy = vi.fn(async (url: any, _init?: any) => createOkJsonResponse(
-      new URL(String(url)).pathname === '/global/health'
-        ? { healthy: true, version: '1.2.15' }
-        : {},
-    ) as any);
-    vi.stubGlobal('fetch', fetchSpy as any);
-
-    const client = await createOpenCodeServerRuntimeClient({ directory: '/tmp', messageBuffer: { push: () => {} } as any });
-    await client.mcpDisconnect({ name: 'my-mcp' });
-
-    const lastCall = fetchSpy.mock.calls.at(-1);
-    expect(lastCall).toBeDefined();
-    const [url, init] = lastCall!;
-
-    const parsed = new URL(String(url));
-    expect(parsed.pathname).toBe('/mcp/my-mcp/disconnect');
-    expect(parsed.searchParams.get('directory')).toBe('/tmp');
-
-    expect((init as any).method).toBe('POST');
-  });
 });

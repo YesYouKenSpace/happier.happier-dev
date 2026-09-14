@@ -617,6 +617,42 @@ describe('createOpenCodeServerRuntime', () => {
     });
   });
 
+  it('does not disconnect directory-scoped MCP servers when one session runtime resets', async () => {
+    const directoryMcpStatus = new Map<string, 'connected' | 'disabled'>();
+    const firstClient = createFakeClient();
+    const secondClient = createFakeClient();
+    for (const client of [firstClient, secondClient]) {
+      client.mcpAdd.mockImplementation(async (input?: unknown) => {
+        directoryMcpStatus.set(String((input as { name?: unknown } | undefined)?.name), 'connected');
+        return { status: 'connected' };
+      });
+      client.mcpDisconnect.mockImplementation(async (input?: unknown) => {
+        directoryMcpStatus.set(String((input as { name?: unknown } | undefined)?.name), 'disabled');
+      });
+    }
+    const createRuntime = (client: ReturnType<typeof createFakeClient>, sessionId: string) => createOpenCodeServerRuntime({
+      directory: '/tmp',
+      session: createFakeSession(sessionId),
+      messageBuffer: new MessageBuffer(),
+      mcpServers: createReadyMcpServers(),
+      permissionHandler: createFakePermissionHandler() as unknown as ProviderEnforcedPermissionHandler,
+      onThinkingChange: vi.fn(),
+    }, {
+      createClient: async () => client as unknown as OpenCodeServerRuntimeClient,
+    });
+    const firstRuntime = createRuntime(firstClient, 'happy_sess_first');
+    const secondRuntime = createRuntime(secondClient, 'happy_sess_second');
+
+    await firstRuntime.startOrLoad({});
+    await secondRuntime.startOrLoad({});
+    await firstRuntime.reset();
+
+    expect(directoryMcpStatus.get('happier')).toBe('connected');
+    expect(firstClient.mcpDisconnect).not.toHaveBeenCalled();
+
+    await secondRuntime.reset();
+  });
+
   it('keeps startup non-blocking but waits for required Happier MCP readiness before the first prompt', async () => {
     const client = createFakeClient();
     let resolveSlowCustomMcp!: () => void;
