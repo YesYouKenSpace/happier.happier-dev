@@ -20,11 +20,6 @@ type AcpSessionListingBackend = AgentBackend & {
   listSessions?: (params: Readonly<{ cwd?: string | null; cursor?: string | null }>) => Promise<AcpSessionListPage>;
 };
 
-export type AcpSessionListBackendFactory = (params: Readonly<{
-  agentId: AgentId;
-  cwd: string;
-}>) => Promise<AgentBackend>;
-
 async function createSharedAcpBackend(params: Readonly<{ agentId: AgentId; cwd: string }>): Promise<AgentBackend> {
   const created = await createCatalogAcpBackend(params.agentId as CatalogAgentId, {
     cwd: params.cwd,
@@ -63,12 +58,7 @@ function toCandidate(session: AcpListedSession): DirectSessionCandidateV1 {
  * corresponding ops are therefore intentionally absent instead of faked, so the daemon reports
  * `provider_unavailable` for them.
  */
-export function createAcpSessionListDirectSessionProviderOps(
-  agentId: AgentId,
-  options: Readonly<{ createBackend?: AcpSessionListBackendFactory }> = {},
-): DirectSessionProviderOps {
-  const createBackend = options.createBackend ?? createSharedAcpBackend;
-
+export function createAcpSessionListDirectSessionProviderOps(agentId: AgentId): DirectSessionProviderOps {
   return {
     listCandidates: async ({ source, cursor, searchTerm }): Promise<DirectSessionCandidatesPage> => {
       if (source.kind !== 'acpSessionList') {
@@ -86,7 +76,7 @@ export function createAcpSessionListDirectSessionProviderOps(
       // `cwd` is the ACP listing filter, not a location Happier must be able to run in: the
       // daemon may be asked about a directory that no longer exists. The short-lived listing
       // process therefore always launches from the daemon's own working directory.
-      const backend = (await createBackend({ agentId, cwd: process.cwd() })) as AcpSessionListingBackend;
+      const backend = (await createSharedAcpBackend({ agentId, cwd: process.cwd() })) as AcpSessionListingBackend;
       let page: AcpSessionListPage;
       try {
         if (typeof backend.listSessions !== 'function') {

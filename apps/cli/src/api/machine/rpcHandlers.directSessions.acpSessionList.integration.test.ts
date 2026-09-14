@@ -236,6 +236,22 @@ describe.skipIf(process.platform === 'win32')('registerMachineDirectSessionsRpcH
     expect(res.errorCode).toBe('invalid_request');
   });
 
+  it('rejects a relative cwd filter instead of resolving it against the daemon working directory', async () => {
+    vi.stubEnv('HAPPIER_KIMI_PATH', writeFakeAgent({ dir, fileName: 'fake-kimi.mjs', negotiateList: true }));
+    const handler = registered.get(RPC_METHODS.DAEMON_DIRECT_SESSIONS_CANDIDATES_LIST)!;
+
+    const res = (await handler({
+      machineId: 'm1',
+      providerId: 'kimi',
+      source: { kind: 'acpSessionList', cwd: 'repo' },
+    })) as ListResponse;
+
+    expect(res.ok).toBe(false);
+    expect(res.errorCode).toBe('invalid_request');
+    // Rejected before any agent process is launched.
+    expect(countLines(dir, 'started.log')).toBe(0);
+  });
+
   it('reports transcript paging and linking as unavailable for ACP listing providers instead of faking them', async () => {
     vi.stubEnv('HAPPIER_KIMI_PATH', writeFakeAgent({ dir, fileName: 'fake-kimi.mjs', negotiateList: true }));
     const { readCredentials } = await import('@/persistence');

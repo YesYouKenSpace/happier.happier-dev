@@ -54,14 +54,16 @@ export function validateDirectMachineSource(params: Readonly<{
     if (!isBuiltInAcpSessionListingDeclared(providerId as AgentId)) {
       return err('provider/source mismatch');
     }
-    const requestedCwd = typeof source.cwd === 'string' && source.cwd.trim().length > 0
-      ? canonicalizePath(source.cwd, env)
-      : null;
-    // ACP requires an absolute working directory; a relative filter would silently match nothing.
-    if (requestedCwd && !isAbsolute(requestedCwd)) {
+    const rawCwd = typeof source.cwd === 'string' ? source.cwd.trim() : '';
+    if (!rawCwd) {
+      return { ok: true, source };
+    }
+    // ACP requires an absolute working directory. Resolving a relative filter against the daemon's
+    // own working directory would silently scope the listing to the wrong project.
+    if (!isAbsolute(expandHomeDirPath(rawCwd, env))) {
       return err('source cwd must be absolute');
     }
-    return { ok: true, source: requestedCwd ? { ...source, cwd: requestedCwd } : source };
+    return { ok: true, source: { ...source, cwd: canonicalizePath(rawCwd, env) } };
   }
 
   switch (providerId) {
