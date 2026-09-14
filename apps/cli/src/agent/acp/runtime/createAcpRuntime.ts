@@ -1328,11 +1328,17 @@ export function createAcpRuntime(params: {
               : accumulatedResponse;
             if (fullText.startsWith(reconciledText)) {
               deltaRaw = fullText.slice(reconciledText.length);
-            } else if (reconciledText.length > 0 && reconciledText.endsWith(fullText)) {
-              // Per-message authoritative snapshot (e.g. pi message_end) whose text was already
-              // delivered as deltas: the rest of the baseline belongs to earlier messages of the
-              // same turn when no provider boundary reset it, so the snapshot delivers nothing
-              // new and must not be re-emitted.
+            } else if (fullTextScope === 'segment' && reconciledText.length > 0 && reconciledText.endsWith(fullText)) {
+              // Segment-scoped per-message snapshot (e.g. pi message_end) whose text was already
+              // delivered as deltas: the rest of the segment baseline belongs to earlier messages
+              // of the same turn when no provider boundary reset it, so the snapshot delivers
+              // nothing new and must not be re-emitted. Safe by the segment producer contract:
+              // pi always streams a message's deltas before its authoritative snapshot, so a
+              // matching tail means the snapshot's message is the one already delivered; a lost
+              // delta stream yields a snapshot longer than the baseline, which fails both the
+              // prefix and tail checks and recovers through the divergent path below. Turn-scoped
+              // snapshots are cumulative by contract, so a shorter matching snapshot means a
+              // divergent provider (restart/regeneration) and keeps the reset path.
               deltaRaw = '';
             } else {
               // Defensive: if a provider restarts and sends divergent fullText, restart snapshot reconciliation.

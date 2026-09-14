@@ -144,10 +144,7 @@ describe('createAcpRuntime (transcript streaming vNext)', () => {
     expect(completedAssistantMessages).toEqual(['Progress update.', 'Final answer.']);
   });
 
-  it.each([
-    { snapshotScope: 'segment' as const },
-    { snapshotScope: 'turn' as const },
-  ])('skips a $snapshotScope snapshot that verbatim matches the already-delivered tail when no boundary reset the baseline', async ({ snapshotScope }) => {
+  it('skips a segment snapshot that verbatim matches the already-delivered tail when no boundary reset the baseline', async () => {
     const backend = createFakeAcpRuntimeBackend({ sessionId: 'sess_main' });
     const tracker = createTurnAssistantPreviewTracker();
     const durableCalls: Array<{ body: ACPMessageData; meta?: Record<string, unknown> }> = [];
@@ -175,9 +172,9 @@ describe('createAcpRuntime (transcript streaming vNext)', () => {
     // message 2's per-message authoritative snapshot arrives while the reconciliation
     // baseline still holds message 1's text.
     backend.emit({ type: 'model-output', textDelta: 'Progress update.' } satisfies AgentMessage);
-    backend.emit({ type: 'model-output', fullText: 'Progress update.', fullTextScope: snapshotScope } satisfies AgentMessage);
+    backend.emit({ type: 'model-output', fullText: 'Progress update.', fullTextScope: 'segment' } satisfies AgentMessage);
     backend.emit({ type: 'model-output', textDelta: 'Final answer.' } satisfies AgentMessage);
-    backend.emit({ type: 'model-output', fullText: 'Final answer.', fullTextScope: snapshotScope } satisfies AgentMessage);
+    backend.emit({ type: 'model-output', fullText: 'Final answer.', fullTextScope: 'segment' } satisfies AgentMessage);
 
     expect(tracker.getPreview()).toBe('Progress update.Final answer.');
     await runtime.flushTurn();
@@ -190,6 +187,33 @@ describe('createAcpRuntime (transcript streaming vNext)', () => {
       return call.body.type === 'message' && segmentState === 'complete' ? [call.body.message] : [];
     });
     expect(completedAssistantMessages).toEqual(['Progress update.Final answer.']);
+  });
+
+  it('keeps resetting reconciliation for a turn snapshot that is shorter than the accumulated turn', async () => {
+    const backend = createFakeAcpRuntimeBackend({ sessionId: 'sess_main' });
+    const tracker = createTurnAssistantPreviewTracker();
+    const runtime = createAcpRuntime({
+      provider: 'pi',
+      directory: '/tmp',
+      session: createBasicSessionClientWithOverrides(),
+      messageBuffer: new MessageBuffer(),
+      mcpServers: {},
+      permissionHandler: createApprovedPermissionHandler(),
+      onThinkingChange: () => {},
+      ensureBackend: async () => backend,
+      turnAssistantPreviewTracker: tracker,
+    });
+
+    await runtime.startOrLoad({});
+    runtime.beginTurn();
+
+    // Turn-scoped snapshots are cumulative by contract; a shorter matching snapshot means a
+    // divergent provider (restart/regeneration) and must replace the accumulated turn text.
+    backend.emit({ type: 'model-output', textDelta: 'Draft.Final.' } satisfies AgentMessage);
+    backend.emit({ type: 'model-output', fullText: 'Final.', fullTextScope: 'turn' } satisfies AgentMessage);
+
+    expect(tracker.getPreview()).toBe('Final.');
+    await runtime.flushTurn();
   });
 
   it('does not infer a segment snapshot scope from a shared prefix', async () => {
