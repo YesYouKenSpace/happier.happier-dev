@@ -1324,6 +1324,7 @@ export function createAcpRuntime(params: {
           }
           const fullText = typeof (msg as any).fullText === 'string' ? String((msg as any).fullText) : '';
           let deltaRaw = typeof (msg as any).textDelta === 'string' ? String((msg as any).textDelta) : '';
+          let replacesAssistantText = false;
           if (!deltaRaw && fullText) {
             const fullTextScope = msg.fullTextScope ?? 'turn';
             const reconciledText = fullTextScope === 'segment'
@@ -1335,9 +1336,16 @@ export function createAcpRuntime(params: {
               // Defensive: if a provider restarts and sends divergent fullText, restart snapshot reconciliation.
               if (fullTextScope === 'turn') {
                 accumulatedResponse = '';
+              } else {
+                const retainedTurnPrefixLength = Math.max(
+                  0,
+                  accumulatedResponse.length - accumulatedAssistantSegmentResponse.length,
+                );
+                accumulatedResponse = accumulatedResponse.slice(0, retainedTurnPrefixLength);
               }
               accumulatedAssistantSegmentResponse = '';
               deltaRaw = fullText;
+              replacesAssistantText = true;
             }
           }
           if (acpTraceMarkersEnabled && sessionId && deltaRaw.includes('ACP_STUB_')) {
@@ -1361,11 +1369,14 @@ export function createAcpRuntime(params: {
               accumulatedResponse += delta;
               accumulatedAssistantSegmentResponse += delta;
             },
+            ...(replacesAssistantText ? { replaceBufferedAssistantText: accumulatedResponse + deltaRaw } : {}),
           });
           params.turnAssistantPreviewTracker?.replace(accumulatedResponse);
 
           if (deltaRaw) {
-            streamedTranscriptWriter.appendAssistantDelta(deltaRaw);
+            if (!replacesAssistantText || !streamedTranscriptWriter.overrideAssistantText(fullText)) {
+              streamedTranscriptWriter.appendAssistantDelta(deltaRaw);
+            }
           }
           break;
         }

@@ -14,11 +14,16 @@ export function handleAcpModelOutputDelta(params: {
   getIsResponseInProgress: () => boolean;
   setIsResponseInProgress: (value: boolean) => void;
   appendToAccumulatedResponse: (delta: string) => void;
+  replaceBufferedAssistantText?: string;
 }): void {
   const delta = params.delta ?? '';
   if (!delta) return;
 
-  if (!params.getIsResponseInProgress()) {
+  if (params.replaceBufferedAssistantText !== undefined) {
+    params.messageBuffer.removeLastMessage('assistant');
+    params.messageBuffer.addMessage(params.replaceBufferedAssistantText, 'assistant');
+    params.setIsResponseInProgress(true);
+  } else if (!params.getIsResponseInProgress()) {
     params.messageBuffer.removeLastMessage('system');
     params.messageBuffer.addMessage(delta, 'assistant');
     params.setIsResponseInProgress(true);

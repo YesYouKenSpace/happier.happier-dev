@@ -221,11 +221,18 @@ describe('createAcpRuntime (transcript streaming vNext)', () => {
   it('keeps resetting reconciliation for a turn snapshot that is shorter than the accumulated turn', async () => {
     const backend = createFakeAcpRuntimeBackend({ sessionId: 'sess_main' });
     const tracker = createTurnAssistantPreviewTracker();
+    const messageBuffer = new MessageBuffer();
+    const durableCalls: Array<{ body: ACPMessageData; meta?: Record<string, unknown> }> = [];
+    const session = createBasicSessionClientWithOverrides({
+      sendAgentMessageCommitted: async (_provider, body, opts) => {
+        durableCalls.push({ body, meta: opts.meta });
+      },
+    });
     const runtime = createAcpRuntime({
       provider: 'pi',
       directory: '/tmp',
-      session: createBasicSessionClientWithOverrides(),
-      messageBuffer: new MessageBuffer(),
+      session,
+      messageBuffer,
       mcpServers: {},
       permissionHandler: createApprovedPermissionHandler(),
       onThinkingChange: () => {},
@@ -242,7 +249,64 @@ describe('createAcpRuntime (transcript streaming vNext)', () => {
     backend.emit({ type: 'model-output', fullText: 'Final.', fullTextScope: 'turn' } satisfies AgentMessage);
 
     expect(tracker.getPreview()).toBe('Final.');
+    expect(messageBuffer.getMessages()
+      .filter((message) => message.type === 'assistant')
+      .map((message) => message.content)).toEqual(['Final.']);
     await runtime.flushTurn();
+
+    const completedAssistantMessages = durableCalls.flatMap((call) => {
+      const streamMeta = call.meta?.happierStreamSegmentV1;
+      const segmentState = streamMeta && typeof streamMeta === 'object'
+        ? (streamMeta as { segmentState?: unknown }).segmentState
+        : undefined;
+      return call.body.type === 'message' && segmentState === 'complete' ? [call.body.message] : [];
+    });
+    expect(completedAssistantMessages).toEqual(['Final.']);
+  });
+
+  it('replaces a divergent segment snapshot in every assistant text projection', async () => {
+    const backend = createFakeAcpRuntimeBackend({ sessionId: 'sess_main' });
+    const tracker = createTurnAssistantPreviewTracker();
+    const messageBuffer = new MessageBuffer();
+    const durableCalls: Array<{ body: ACPMessageData; meta?: Record<string, unknown> }> = [];
+    const session = createBasicSessionClientWithOverrides({
+      sendAgentMessageCommitted: async (_provider, body, opts) => {
+        durableCalls.push({ body, meta: opts.meta });
+      },
+    });
+    const runtime = createAcpRuntime({
+      provider: 'pi',
+      directory: '/tmp',
+      session,
+      messageBuffer,
+      mcpServers: {},
+      permissionHandler: createApprovedPermissionHandler(),
+      onThinkingChange: () => {},
+      ensureBackend: async () => backend,
+      turnAssistantPreviewTracker: tracker,
+    });
+
+    await runtime.startOrLoad({});
+    runtime.beginTurn();
+
+    backend.emit({ type: 'model-output', startsNewSegment: true } satisfies AgentMessage);
+    backend.emit({ type: 'model-output', textDelta: 'Draft.' } satisfies AgentMessage);
+    backend.emit({ type: 'model-output', fullText: 'Final.', fullTextScope: 'segment' } satisfies AgentMessage);
+
+    expect(tracker.getPreview()).toBe('Final.');
+    expect(messageBuffer.getMessages()
+      .filter((message) => message.type === 'assistant')
+      .map((message) => message.content)).toEqual(['Final.']);
+    await runtime.flushTurn();
+
+    const completedAssistantMessages = durableCalls.flatMap((call) => {
+      const streamMeta = call.meta?.happierStreamSegmentV1;
+      const segmentState = streamMeta && typeof streamMeta === 'object'
+        ? (streamMeta as { segmentState?: unknown }).segmentState
+        : undefined;
+      return call.body.type === 'message' && segmentState === 'complete' ? [call.body.message] : [];
+    });
+    expect(completedAssistantMessages).toEqual(['Final.']);
   });
 
   it('does not infer a segment snapshot scope from a shared prefix', async () => {
