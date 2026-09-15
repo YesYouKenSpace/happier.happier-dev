@@ -5,10 +5,16 @@ import { logger } from '@/ui/logger';
 import type { ACPProvider } from './sessionMessageTypes';
 import {
   createStreamedTranscriptWriter,
+  type StreamedTranscriptWriter,
   type StreamedTranscriptWriterSession,
 } from './streamedTranscriptWriter';
 
 type Mutable<T> = { -readonly [Key in keyof T]: T[Key] };
+type Deferred<T> = Readonly<{
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (error: unknown) => void;
+}>;
 
 const TEST_PROVIDER = 'codex' satisfies ACPProvider;
 
@@ -73,7 +79,7 @@ async function settleCommittedSnapshot() {
   }
 }
 
-function createDeferred<T>() {
+const createDeferred = <T>(): Deferred<T> => {
   let resolve!: (value: T) => void;
   let reject!: (error: unknown) => void;
   const promise = new Promise<T>((resolvePromise, rejectPromise) => {
@@ -81,7 +87,7 @@ function createDeferred<T>() {
     reject = rejectPromise;
   });
   return { promise, resolve, reject };
-}
+};
 
 describe('createStreamedTranscriptWriter', () => {
   it('emits live snapshots ahead of durable checkpoints and flushes the latest text on the live cadence', async () => {
@@ -1259,10 +1265,10 @@ function createDeltaSessionStub() {
 }
 
 describe('createStreamedTranscriptWriter delta live streaming', () => {
-  function createDeltaWriter(
+  const createDeltaWriter = (
     session: StreamedTranscriptWriterSession,
     overrides: Partial<Parameters<typeof createStreamedTranscriptWriter>[0]> = {},
-  ) {
+  ): StreamedTranscriptWriter => {
     return createStreamedTranscriptWriter({
       provider: TEST_PROVIDER,
       session,
@@ -1275,7 +1281,7 @@ describe('createStreamedTranscriptWriter delta live streaming', () => {
       liveCheckpointIntervalMs: 1_000,
       ...overrides,
     });
-  }
+  };
 
   it('emits a full snapshot first, then append-only deltas with chained ticks and base lengths', async () => {
     vi.useFakeTimers();
