@@ -10,11 +10,11 @@ import {
 } from './streamedTranscriptWriter';
 
 type Mutable<T> = { -readonly [Key in keyof T]: T[Key] };
-type Deferred<T> = Readonly<{
-  promise: Promise<T>;
-  resolve: (value: T) => void;
-  reject: (error: unknown) => void;
-}>;
+interface Deferred<T> {
+  readonly promise: Promise<T>;
+  readonly resolve: (value: T) => void;
+  readonly reject: (error: unknown) => void;
+}
 
 const TEST_PROVIDER = 'codex' satisfies ACPProvider;
 
