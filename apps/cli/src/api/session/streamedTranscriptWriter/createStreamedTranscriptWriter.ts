@@ -122,6 +122,7 @@ export function createStreamedTranscriptWriter(params: {
 
   const segments = new Map<SegmentKey, SegmentRuntime>();
   const toolBoundaryRewriteCandidates = new Map<SegmentKey, SegmentRuntime>();
+  const inFlightToolBoundaryRewriteCandidates = new Set<SegmentRuntime>();
   const pendingRewriteRetries = new Set<SegmentRuntime>();
   let scheduleDurableCheckpoint: (segment: SegmentRuntime) => void;
 
@@ -575,11 +576,15 @@ export function createStreamedTranscriptWriter(params: {
   ): SegmentRuntime[] => {
     const candidatesToDrain = reason === 'tool-call-boundary'
       ? []
-      : Array.from(new Set(toolBoundaryRewriteCandidates.values()));
+      : Array.from(new Set([
+          ...toolBoundaryRewriteCandidates.values(),
+          ...inFlightToolBoundaryRewriteCandidates,
+        ]));
     if (reason === 'tool-call-boundary') {
       for (const segment of flushedSegments) {
         if (segment.accumulatedText.length > 0) {
           toolBoundaryRewriteCandidates.set(segment.key, segment);
+          inFlightToolBoundaryRewriteCandidates.add(segment);
         }
       }
     } else {
@@ -633,6 +638,7 @@ export function createStreamedTranscriptWriter(params: {
     ]));
     for (const segment of settledSegments) {
       const isRewriteCandidate = rewriteCandidateSet.has(segment)
+        || inFlightToolBoundaryRewriteCandidates.has(segment)
         || toolBoundaryRewriteCandidates.get(segment.key) === segment;
       const expectedState = isRewriteCandidate ? 'complete' : state;
       if (
@@ -644,6 +650,11 @@ export function createStreamedTranscriptWriter(params: {
         } else {
           segments.set(segment.key, segment);
         }
+      }
+    }
+    if (opts.reason === 'tool-call-boundary') {
+      for (const segment of flushedSegments) {
+        inFlightToolBoundaryRewriteCandidates.delete(segment);
       }
     }
     const failedExactSegment = settledSegments.find((segment) =>
@@ -718,6 +729,7 @@ export function createStreamedTranscriptWriter(params: {
     }
     segments.clear();
     toolBoundaryRewriteCandidates.clear();
+    inFlightToolBoundaryRewriteCandidates.clear();
     pendingRewriteRetries.clear();
   };
 
