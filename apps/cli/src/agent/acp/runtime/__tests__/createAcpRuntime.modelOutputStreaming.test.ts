@@ -144,7 +144,7 @@ describe('createAcpRuntime (transcript streaming vNext)', () => {
     expect(completedAssistantMessages).toEqual(['Progress update.', 'Final answer.']);
   });
 
-  it('skips a segment snapshot that verbatim matches the already-delivered tail when no boundary reset the baseline', async () => {
+  it('reconciles consecutive segment snapshots against their explicit provider boundaries', async () => {
     const backend = createFakeAcpRuntimeBackend({ sessionId: 'sess_main' });
     const tracker = createTurnAssistantPreviewTracker();
     const durableCalls: Array<{ body: ACPMessageData; meta?: Record<string, unknown> }> = [];
@@ -168,11 +168,12 @@ describe('createAcpRuntime (transcript streaming vNext)', () => {
     await runtime.startOrLoad({});
     runtime.beginTurn();
 
-    // Multi-message turn with no tool/permission boundary between assistant messages:
-    // message 2's per-message authoritative snapshot arrives while the reconciliation
-    // baseline still holds message 1's text.
+    // A multi-message turn can contain no tool/permission boundary between assistant
+    // messages, so the provider message boundary owns the per-message snapshot baseline.
+    backend.emit({ type: 'model-output', startsNewSegment: true } satisfies AgentMessage);
     backend.emit({ type: 'model-output', textDelta: 'Progress update.' } satisfies AgentMessage);
     backend.emit({ type: 'model-output', fullText: 'Progress update.', fullTextScope: 'segment' } satisfies AgentMessage);
+    backend.emit({ type: 'model-output', startsNewSegment: true } satisfies AgentMessage);
     backend.emit({ type: 'model-output', textDelta: 'Final answer.' } satisfies AgentMessage);
     backend.emit({ type: 'model-output', fullText: 'Final answer.', fullTextScope: 'segment' } satisfies AgentMessage);
 
@@ -187,6 +188,34 @@ describe('createAcpRuntime (transcript streaming vNext)', () => {
       return call.body.type === 'message' && segmentState === 'complete' ? [call.body.message] : [];
     });
     expect(completedAssistantMessages).toEqual(['Progress update.Final answer.']);
+  });
+
+  it('preserves a new snapshot-only segment when its text matches the delivered tail', async () => {
+    const backend = createFakeAcpRuntimeBackend({ sessionId: 'sess_main' });
+    const tracker = createTurnAssistantPreviewTracker();
+    const runtime = createAcpRuntime({
+      provider: 'pi',
+      directory: '/tmp',
+      session: createBasicSessionClientWithOverrides(),
+      messageBuffer: new MessageBuffer(),
+      mcpServers: {},
+      permissionHandler: createApprovedPermissionHandler(),
+      onThinkingChange: () => {},
+      ensureBackend: async () => backend,
+      turnAssistantPreviewTracker: tracker,
+    });
+
+    await runtime.startOrLoad({});
+    runtime.beginTurn();
+
+    backend.emit({ type: 'model-output', startsNewSegment: true } satisfies AgentMessage);
+    backend.emit({ type: 'model-output', textDelta: 'Echo.' } satisfies AgentMessage);
+    backend.emit({ type: 'model-output', fullText: 'Echo.', fullTextScope: 'segment' } satisfies AgentMessage);
+    backend.emit({ type: 'model-output', startsNewSegment: true } satisfies AgentMessage);
+    backend.emit({ type: 'model-output', fullText: 'Echo.', fullTextScope: 'segment' } satisfies AgentMessage);
+
+    expect(tracker.getPreview()).toBe('Echo.Echo.');
+    await runtime.flushTurn();
   });
 
   it('keeps resetting reconciliation for a turn snapshot that is shorter than the accumulated turn', async () => {
