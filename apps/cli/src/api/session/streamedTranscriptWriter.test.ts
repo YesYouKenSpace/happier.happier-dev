@@ -527,6 +527,33 @@ describe('createStreamedTranscriptWriter', () => {
     });
   });
 
+  it('can override the assistant segment most recently flushed at a tool boundary', async () => {
+    const { session, durableCalls } = createSessionStub();
+    let segmentOrdinal = 0;
+    const writer = createStreamedTranscriptWriter({
+      provider: 'codex' as any,
+      session: session as any,
+      makeLocalId: () => `segment-${++segmentOrdinal}`,
+      checkpointIntervalMs: 10_000,
+      checkpointMinChars: 999,
+    });
+
+    writer.appendAssistantDelta('Draft.');
+    await writer.flushAll({ reason: 'tool-call-boundary' });
+
+    const didOverride = writer.overrideAssistantText('Final.');
+    await writer.flushAll({ reason: 'turn-end' });
+    await settleCommittedSnapshot();
+
+    expect(didOverride).toBe(true);
+    expect(durableCalls.at(-1)).toMatchObject({
+      localId: 'segment-1',
+      body: { type: 'message', message: 'Final.' },
+    });
+    expect(new Set(durableCalls.map((call) => call.localId))).toEqual(new Set(['segment-1']));
+    expect(writer.overrideAssistantText('Stale.')).toBe(false);
+  });
+
   it('does not create a new durable segment when overrideAssistantText is called before any streamed delta', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(0));

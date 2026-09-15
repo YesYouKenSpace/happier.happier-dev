@@ -352,6 +352,50 @@ describe('createAcpRuntime (transcript streaming vNext)', () => {
     expect(completedAssistantMessages).toEqual(['Progress.', 'Final.']);
   });
 
+  it('replaces the just-flushed durable segment when a divergent turn snapshot follows a tool boundary', async () => {
+    const backend = createFakeAcpRuntimeBackend({ sessionId: 'sess_main' });
+    const tracker = createTurnAssistantPreviewTracker();
+    const durableCalls: Array<{ localId: string; body: ACPMessageData; meta?: Record<string, unknown> }> = [];
+    const session = createBasicSessionClientWithOverrides({
+      sendAgentMessageCommitted: async (_provider, body, opts) => {
+        durableCalls.push({ localId: opts.localId, body, meta: opts.meta });
+      },
+    });
+    const runtime = createAcpRuntime({
+      provider: 'pi',
+      directory: '/tmp',
+      session,
+      messageBuffer: new MessageBuffer(),
+      mcpServers: {},
+      permissionHandler: createApprovedPermissionHandler(),
+      onThinkingChange: () => {},
+      ensureBackend: async () => backend,
+      turnAssistantPreviewTracker: tracker,
+    });
+
+    await runtime.startOrLoad({});
+    runtime.beginTurn();
+
+    backend.emit({ type: 'model-output', textDelta: 'Draft.' } satisfies AgentMessage);
+    backend.emit({ type: 'tool-call', toolName: 'Read', args: {}, callId: 'tool-1' } satisfies AgentMessage);
+    await expect.poll(() => durableCalls.some((call) => call.body.type === 'message')).toBe(true);
+    backend.emit({ type: 'model-output', fullText: 'Final.', fullTextScope: 'turn' } satisfies AgentMessage);
+
+    expect(tracker.getPreview()).toBe('Final.');
+    await runtime.flushTurn();
+
+    const completedAssistantMessages = durableCalls.flatMap((call) => {
+      const streamMeta = call.meta?.happierStreamSegmentV1;
+      const segmentState = streamMeta && typeof streamMeta === 'object'
+        ? (streamMeta as { segmentState?: unknown }).segmentState
+        : undefined;
+      return call.body.type === 'message' && segmentState === 'complete' ? [call.body.message] : [];
+    });
+    expect(completedAssistantMessages.at(-1)).toBe('Final.');
+    expect(completedAssistantMessages).not.toContain('Draft.Final.');
+    expect(new Set(durableCalls.map((call) => call.localId))).toHaveLength(1);
+  });
+
   it('does not infer a segment snapshot scope from a shared prefix', async () => {
     const backend = createFakeAcpRuntimeBackend({ sessionId: 'sess_main' });
     const tracker = createTurnAssistantPreviewTracker();

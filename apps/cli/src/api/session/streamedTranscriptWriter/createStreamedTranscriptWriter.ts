@@ -117,6 +117,7 @@ export function createStreamedTranscriptWriter(params: {
   const liveCheckpointIntervalMs = resolveLiveCheckpointIntervalMs(params.liveCheckpointIntervalMs);
 
   const segments = new Map<SegmentKey, SegmentRuntime>();
+  const toolBoundaryRewriteCandidates = new Map<SegmentKey, SegmentRuntime>();
   let scheduleDurableCheckpoint: (segment: SegmentRuntime) => void;
 
   const clearLiveSnapshotTimer = (segment: SegmentRuntime) => {
@@ -531,8 +532,18 @@ export function createStreamedTranscriptWriter(params: {
   };
 
   const overrideSegmentText = (kind: SegmentKind, text: string, sidechainId: string | null): boolean => {
-    const segment = getExistingSegment(kind, sidechainId);
-    if (!segment) return false;
+    const key = buildStreamedTranscriptSegmentKey(kind, sidechainId);
+    const segment = segments.get(key);
+    if (!segment) {
+      const rewriteCandidate = toolBoundaryRewriteCandidates.get(key);
+      if (!rewriteCandidate) return false;
+      if (rewriteCandidate.accumulatedText === text) return true;
+      rewriteCandidate.accumulatedText = text;
+      rewriteCandidate.appendOnlySinceLastDurableSnapshot = false;
+      rewriteCandidate.textVersion += 1;
+      commitDurableSnapshot(rewriteCandidate, { state: 'complete', force: true });
+      return true;
+    }
     if (segment.accumulatedText === text) return true;
     segment.accumulatedText = text;
     segment.appendOnlySinceLastDurableSnapshot = false;
@@ -553,6 +564,25 @@ export function createStreamedTranscriptWriter(params: {
     return true;
   };
 
+  const updateToolBoundaryRewriteCandidates = (
+    reason: 'tool-call-boundary' | 'turn-end' | 'abort',
+    flushedSegments: ReadonlyArray<SegmentRuntime>,
+  ): SegmentRuntime[] => {
+    const candidatesToDrain = reason === 'tool-call-boundary'
+      ? []
+      : Array.from(new Set(toolBoundaryRewriteCandidates.values()));
+    if (reason === 'tool-call-boundary') {
+      for (const segment of flushedSegments) {
+        if (segment.accumulatedText.length > 0) {
+          toolBoundaryRewriteCandidates.set(segment.key, segment);
+        }
+      }
+    } else {
+      toolBoundaryRewriteCandidates.clear();
+    }
+    return candidatesToDrain;
+  };
+
   const flushAll = async (opts: {
     reason: 'tool-call-boundary' | 'turn-end' | 'abort';
     interruptedReason?: string;
@@ -560,6 +590,7 @@ export function createStreamedTranscriptWriter(params: {
     const state: SegmentState = opts.reason === 'abort' ? 'interrupted' : 'complete';
     const drainPromises: Promise<void>[] = [];
     const flushedSegments = Array.from(segments.values());
+    const rewriteCandidatesToDrain = updateToolBoundaryRewriteCandidates(opts.reason, flushedSegments);
 
     for (const segment of flushedSegments) {
       clearDurableCheckpointTimer(segment);
@@ -576,7 +607,10 @@ export function createStreamedTranscriptWriter(params: {
       })());
     }
 
-    await Promise.all(drainPromises);
+    await Promise.all([
+      ...drainPromises,
+      ...rewriteCandidatesToDrain.map((segment) => waitForSegmentDrain(segment)),
+    ]);
     for (const segment of flushedSegments) {
       if (
         segment.commitMode === 'compatibility'
@@ -605,6 +639,7 @@ export function createStreamedTranscriptWriter(params: {
   }): Promise<void> => {
     const state: SegmentState = opts.reason === 'abort' ? 'interrupted' : 'complete';
     const flushedSegments = Array.from(segments.values());
+    updateToolBoundaryRewriteCandidates(opts.reason, flushedSegments);
 
     await Promise.all(flushedSegments.map(async (segment) => {
       clearDurableCheckpointTimer(segment);
@@ -646,6 +681,7 @@ export function createStreamedTranscriptWriter(params: {
       segment.idleWaiters.splice(0, segment.idleWaiters.length).forEach((resolve) => resolve());
     }
     segments.clear();
+    toolBoundaryRewriteCandidates.clear();
   };
 
   return {
