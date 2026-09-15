@@ -309,6 +309,54 @@ describe('createAcpRuntime (transcript streaming vNext)', () => {
     expect(completedAssistantMessages).toEqual(['Final.']);
   });
 
+  it('preserves earlier provider segments when a later segment snapshot diverges', async () => {
+    const backend = createFakeAcpRuntimeBackend({ sessionId: 'sess_main' });
+    const tracker = createTurnAssistantPreviewTracker();
+    const messageBuffer = new MessageBuffer();
+    const durableCalls: Array<{ body: ACPMessageData; meta?: Record<string, unknown> }> = [];
+    const session = createBasicSessionClientWithOverrides({
+      sendAgentMessageCommitted: async (_provider, body, opts) => {
+        durableCalls.push({ body, meta: opts.meta });
+      },
+    });
+    const runtime = createAcpRuntime({
+      provider: 'pi',
+      directory: '/tmp',
+      session,
+      messageBuffer,
+      mcpServers: {},
+      permissionHandler: createApprovedPermissionHandler(),
+      onThinkingChange: () => {},
+      ensureBackend: async () => backend,
+      turnAssistantPreviewTracker: tracker,
+    });
+
+    await runtime.startOrLoad({});
+    runtime.beginTurn();
+
+    backend.emit({ type: 'model-output', startsNewSegment: true } satisfies AgentMessage);
+    backend.emit({ type: 'model-output', textDelta: 'Progress.' } satisfies AgentMessage);
+    backend.emit({ type: 'model-output', fullText: 'Progress.', fullTextScope: 'segment' } satisfies AgentMessage);
+    backend.emit({ type: 'model-output', startsNewSegment: true } satisfies AgentMessage);
+    backend.emit({ type: 'model-output', textDelta: 'Draft.' } satisfies AgentMessage);
+    backend.emit({ type: 'model-output', fullText: 'Final.', fullTextScope: 'segment' } satisfies AgentMessage);
+
+    expect(tracker.getPreview()).toBe('Progress.Final.');
+    expect(messageBuffer.getMessages()
+      .filter((message) => message.type === 'assistant')
+      .map((message) => message.content)).toEqual(['Progress.Final.']);
+    await runtime.flushTurn();
+
+    const completedAssistantMessages = durableCalls.flatMap((call) => {
+      const streamMeta = call.meta?.happierStreamSegmentV1;
+      const segmentState = streamMeta && typeof streamMeta === 'object'
+        ? (streamMeta as { segmentState?: unknown }).segmentState
+        : undefined;
+      return call.body.type === 'message' && segmentState === 'complete' ? [call.body.message] : [];
+    });
+    expect(completedAssistantMessages).toEqual(['Progress.Final.']);
+  });
+
   it('replaces only the active durable segment when a turn snapshot diverges after a tool boundary', async () => {
     const backend = createFakeAcpRuntimeBackend({ sessionId: 'sess_main' });
     const tracker = createTurnAssistantPreviewTracker();

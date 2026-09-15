@@ -570,6 +570,7 @@ export function createAcpRuntime(params: {
   }> | null = null;
   let accumulatedResponse = '';
   let accumulatedAssistantSegmentResponse = '';
+  let accumulatedAssistantTranscriptSegmentResponse = '';
   let accumulatedThinkingText = '';
   let isResponseInProgress = false;
   let taskStartedSent = false;
@@ -808,6 +809,7 @@ export function createAcpRuntime(params: {
     }
     accumulatedResponse = '';
     accumulatedAssistantSegmentResponse = '';
+    accumulatedAssistantTranscriptSegmentResponse = '';
     accumulatedThinkingText = '';
     isResponseInProgress = false;
     taskStartedSent = false;
@@ -1340,14 +1342,29 @@ export function createAcpRuntime(params: {
               );
               const retainedTurnPrefix = accumulatedResponse.slice(0, retainedTurnPrefixLength);
               if (fullTextScope === 'turn') {
-                if (fullText.startsWith(retainedTurnPrefix)) {
-                  accumulatedResponse = retainedTurnPrefix;
-                  deltaRaw = fullText.slice(retainedTurnPrefix.length);
+                const flushedTurnPrefixLength = Math.max(
+                  0,
+                  accumulatedResponse.length - accumulatedAssistantTranscriptSegmentResponse.length,
+                );
+                const flushedTurnPrefix = accumulatedResponse.slice(0, flushedTurnPrefixLength);
+                if (fullText.startsWith(flushedTurnPrefix)) {
+                  accumulatedResponse = flushedTurnPrefix;
+                  accumulatedAssistantTranscriptSegmentResponse = '';
+                  deltaRaw = fullText.slice(flushedTurnPrefix.length);
                 } else {
                   accumulatedResponse = '';
+                  accumulatedAssistantTranscriptSegmentResponse = '';
                   deltaRaw = fullText;
                 }
               } else {
+                const retainedTranscriptPrefixLength = Math.max(
+                  0,
+                  accumulatedAssistantTranscriptSegmentResponse.length - accumulatedAssistantSegmentResponse.length,
+                );
+                accumulatedAssistantTranscriptSegmentResponse = accumulatedAssistantTranscriptSegmentResponse.slice(
+                  0,
+                  retainedTranscriptPrefixLength,
+                );
                 accumulatedResponse = retainedTurnPrefix;
                 deltaRaw = fullText;
               }
@@ -1375,13 +1392,17 @@ export function createAcpRuntime(params: {
             appendToAccumulatedResponse: (delta) => {
               accumulatedResponse += delta;
               accumulatedAssistantSegmentResponse += delta;
+              accumulatedAssistantTranscriptSegmentResponse += delta;
             },
             ...(replacesAssistantText ? { replaceBufferedAssistantText: accumulatedResponse + deltaRaw } : {}),
           });
           params.turnAssistantPreviewTracker?.replace(accumulatedResponse);
 
           if (deltaRaw) {
-            if (!replacesAssistantText || !streamedTranscriptWriter.overrideAssistantText(deltaRaw)) {
+            if (
+              !replacesAssistantText
+              || !streamedTranscriptWriter.overrideAssistantText(accumulatedAssistantTranscriptSegmentResponse)
+            ) {
               streamedTranscriptWriter.appendAssistantDelta(deltaRaw);
             }
           }
@@ -1453,6 +1474,7 @@ export function createAcpRuntime(params: {
           }
 
           accumulatedAssistantSegmentResponse = '';
+          accumulatedAssistantTranscriptSegmentResponse = '';
           void streamedTranscriptWriter.flushAll({ reason: 'tool-call-boundary' });
           params.messageBuffer.addMessage(`Executing: ${msg.toolName}`, 'tool');
           recordToolCall(msg.callId, msg.toolName);
@@ -1616,6 +1638,7 @@ export function createAcpRuntime(params: {
             logger.debug(`[${params.provider}] Failed to run permission-request hook (non-fatal)`, e);
           }
           accumulatedAssistantSegmentResponse = '';
+          accumulatedAssistantTranscriptSegmentResponse = '';
           void streamedTranscriptWriter.flushAll({ reason: 'tool-call-boundary' }).finally(() => {
             forwarder.forward(msg);
           });
