@@ -554,6 +554,33 @@ describe('createStreamedTranscriptWriter', () => {
     expect(writer.overrideAssistantText('Stale.')).toBe(false);
   });
 
+  it('reports and retries a failed replacement of a tool-boundary rewrite candidate', async () => {
+    const { session } = createSessionStub();
+    const writer = createStreamedTranscriptWriter({
+      provider: 'codex' as any,
+      session: session as any,
+      makeLocalId: () => 'segment-1',
+      checkpointIntervalMs: 10_000,
+      checkpointMinChars: 999,
+    });
+
+    writer.appendAssistantDelta('Draft.');
+    await writer.flushAll({ reason: 'tool-call-boundary' });
+    session.sendAgentMessageCommitted = async () => {
+      throw new Error('replacement unavailable');
+    };
+
+    expect(writer.overrideAssistantText('Final.')).toBe(true);
+    await expect(writer.flushAll({ reason: 'turn-end' })).resolves.toMatchObject({
+      assistantRoot: { sawText: true, didDurablyFlush: false },
+    });
+
+    session.sendAgentMessageCommitted = async () => {};
+    await expect(writer.flushAll({ reason: 'turn-end' })).resolves.toMatchObject({
+      assistantRoot: { sawText: true, didDurablyFlush: true },
+    });
+  });
+
   it('does not create a new durable segment when overrideAssistantText is called before any streamed delta', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(0));

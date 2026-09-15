@@ -611,7 +611,11 @@ export function createStreamedTranscriptWriter(params: {
       ...drainPromises,
       ...rewriteCandidatesToDrain.map((segment) => waitForSegmentDrain(segment)),
     ]);
-    for (const segment of flushedSegments) {
+    const settledSegments = Array.from(new Set([
+      ...flushedSegments,
+      ...rewriteCandidatesToDrain,
+    ]));
+    for (const segment of settledSegments) {
       if (
         segment.commitMode === 'compatibility'
         && (segment.lastCommitError !== null || !didSegmentDurablyFlush(segment, state))
@@ -619,7 +623,7 @@ export function createStreamedTranscriptWriter(params: {
         segments.set(segment.key, segment);
       }
     }
-    const failedExactSegment = flushedSegments.find((segment) =>
+    const failedExactSegment = settledSegments.find((segment) =>
       segment.commitMode === 'exact'
       && (segment.lastCommitError !== null || !didSegmentDurablyFlush(segment, state)),
     );
@@ -629,8 +633,8 @@ export function createStreamedTranscriptWriter(params: {
         : 'durable acknowledgement was not received';
       throw new Error(`Exact transcript segment commit failed for ${failedExactSegment.segmentLocalId}: ${reason}`);
     }
-    for (const segment of flushedSegments) logUnresolvedLiveFailureSummary(segment);
-    return buildFlushSummary({ flushedSegments, expectedState: state });
+    for (const segment of settledSegments) logUnresolvedLiveFailureSummary(segment);
+    return buildFlushSummary({ flushedSegments: settledSegments, expectedState: state });
   };
 
   const flushAllThroughDurableAdmission = async (opts: {
