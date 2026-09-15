@@ -20,7 +20,7 @@ export function handleAcpModelOutputDelta(params: {
   replaceBufferedAssistantText?: string;
 }): void {
   const delta = params.delta ?? '';
-  if (!delta) return;
+  if (!delta && params.replaceBufferedAssistantText === undefined) return;
 
   if (params.replaceBufferedAssistantText !== undefined) {
     params.messageBuffer.replaceLastMessage(params.replaceBufferedAssistantText, 'assistant');

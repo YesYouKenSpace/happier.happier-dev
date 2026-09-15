@@ -400,6 +400,53 @@ describe('createAcpRuntime (transcript streaming vNext)', () => {
     expect(completedAssistantMessages).toEqual(['Progress.', 'Final.']);
   });
 
+  it('clears a stale active segment when a turn snapshot ends at the flushed prefix', async () => {
+    const backend = createFakeAcpRuntimeBackend({ sessionId: 'sess_main' });
+    const tracker = createTurnAssistantPreviewTracker();
+    const messageBuffer = new MessageBuffer();
+    const durableCalls: Array<{ body: ACPMessageData; meta?: Record<string, unknown> }> = [];
+    const session = createBasicSessionClientWithOverrides({
+      sendAgentMessageCommitted: async (_provider, body, opts) => {
+        durableCalls.push({ body, meta: opts.meta });
+      },
+    });
+    const runtime = createAcpRuntime({
+      provider: 'pi',
+      directory: '/tmp',
+      session,
+      messageBuffer,
+      mcpServers: {},
+      permissionHandler: createApprovedPermissionHandler(),
+      onThinkingChange: () => {},
+      ensureBackend: async () => backend,
+      turnAssistantPreviewTracker: tracker,
+    });
+
+    await runtime.startOrLoad({});
+    runtime.beginTurn();
+
+    backend.emit({ type: 'model-output', textDelta: 'Progress.' } satisfies AgentMessage);
+    backend.emit({ type: 'tool-call', toolName: 'Read', args: {}, callId: 'tool-1' } satisfies AgentMessage);
+    backend.emit({ type: 'model-output', textDelta: 'Draft.' } satisfies AgentMessage);
+    backend.emit({ type: 'model-output', fullText: 'Progress.', fullTextScope: 'turn' } satisfies AgentMessage);
+
+    expect(tracker.getPreview()).toBe('Progress.');
+    expect(messageBuffer.getMessages().map((message) => [message.type, message.content])).toEqual([
+      ['assistant', 'Progress.'],
+      ['tool', 'Executing: Read'],
+    ]);
+    await runtime.flushTurn();
+
+    const completedAssistantMessages = durableCalls.flatMap((call) => {
+      const streamMeta = call.meta?.happierStreamSegmentV1;
+      const segmentState = streamMeta && typeof streamMeta === 'object'
+        ? (streamMeta as { segmentState?: unknown }).segmentState
+        : undefined;
+      return call.body.type === 'message' && segmentState === 'complete' ? [call.body.message] : [];
+    });
+    expect(completedAssistantMessages).toEqual(['Progress.', '']);
+  });
+
   it('replaces the just-flushed durable segment when a divergent turn snapshot follows a tool boundary', async () => {
     const backend = createFakeAcpRuntimeBackend({ sessionId: 'sess_main' });
     const tracker = createTurnAssistantPreviewTracker();

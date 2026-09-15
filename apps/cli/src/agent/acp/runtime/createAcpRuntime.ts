@@ -1398,13 +1398,15 @@ export function createAcpRuntime(params: {
           });
           params.turnAssistantPreviewTracker?.replace(accumulatedResponse);
 
-          if (deltaRaw) {
+          if (replacesAssistantText) {
             if (
-              !replacesAssistantText
-              || !streamedTranscriptWriter.overrideAssistantText(accumulatedAssistantTranscriptSegmentResponse)
+              !streamedTranscriptWriter.overrideAssistantText(accumulatedAssistantTranscriptSegmentResponse)
+              && deltaRaw
             ) {
               streamedTranscriptWriter.appendAssistantDelta(deltaRaw);
             }
+          } else if (deltaRaw) {
+            streamedTranscriptWriter.appendAssistantDelta(deltaRaw);
           }
           break;
         }
