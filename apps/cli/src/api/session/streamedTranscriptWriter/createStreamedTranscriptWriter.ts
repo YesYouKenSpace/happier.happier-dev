@@ -118,6 +118,7 @@ export function createStreamedTranscriptWriter(params: {
 
   const segments = new Map<SegmentKey, SegmentRuntime>();
   const toolBoundaryRewriteCandidates = new Map<SegmentKey, SegmentRuntime>();
+  const pendingRewriteRetries = new Set<SegmentRuntime>();
   let scheduleDurableCheckpoint: (segment: SegmentRuntime) => void;
 
   const clearLiveSnapshotTimer = (segment: SegmentRuntime) => {
@@ -590,7 +591,18 @@ export function createStreamedTranscriptWriter(params: {
     const state: SegmentState = opts.reason === 'abort' ? 'interrupted' : 'complete';
     const drainPromises: Promise<void>[] = [];
     const flushedSegments = Array.from(segments.values());
-    const rewriteCandidatesToDrain = updateToolBoundaryRewriteCandidates(opts.reason, flushedSegments);
+    const rewriteCandidatesToDrain = Array.from(new Set([
+      ...pendingRewriteRetries,
+      ...updateToolBoundaryRewriteCandidates(opts.reason, flushedSegments),
+    ]));
+    pendingRewriteRetries.clear();
+    const rewriteCandidateSet = new Set(rewriteCandidatesToDrain);
+
+    for (const segment of rewriteCandidatesToDrain) {
+      if (!segment.isCommittingDurable && !didSegmentDurablyFlush(segment, state)) {
+        commitDurableSnapshot(segment, { state, interruptedReason: opts.interruptedReason, force: true });
+      }
+    }
 
     for (const segment of flushedSegments) {
       clearDurableCheckpointTimer(segment);
@@ -620,7 +632,11 @@ export function createStreamedTranscriptWriter(params: {
         segment.commitMode === 'compatibility'
         && (segment.lastCommitError !== null || !didSegmentDurablyFlush(segment, state))
       ) {
-        segments.set(segment.key, segment);
+        if (rewriteCandidateSet.has(segment)) {
+          pendingRewriteRetries.add(segment);
+        } else {
+          segments.set(segment.key, segment);
+        }
       }
     }
     const failedExactSegment = settledSegments.find((segment) =>
@@ -643,7 +659,9 @@ export function createStreamedTranscriptWriter(params: {
   }): Promise<void> => {
     const state: SegmentState = opts.reason === 'abort' ? 'interrupted' : 'complete';
     const flushedSegments = Array.from(segments.values());
-    updateToolBoundaryRewriteCandidates(opts.reason, flushedSegments);
+    for (const segment of updateToolBoundaryRewriteCandidates(opts.reason, flushedSegments)) {
+      pendingRewriteRetries.add(segment);
+    }
 
     await Promise.all(flushedSegments.map(async (segment) => {
       clearDurableCheckpointTimer(segment);
@@ -686,6 +704,7 @@ export function createStreamedTranscriptWriter(params: {
     }
     segments.clear();
     toolBoundaryRewriteCandidates.clear();
+    pendingRewriteRetries.clear();
   };
 
   return {

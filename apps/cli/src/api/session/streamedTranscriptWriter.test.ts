@@ -576,9 +576,45 @@ describe('createStreamedTranscriptWriter', () => {
     });
 
     session.sendAgentMessageCommitted = async () => {};
-    await expect(writer.flushAll({ reason: 'turn-end' })).resolves.toMatchObject({
+    await expect(writer.flushAll({ reason: 'tool-call-boundary' })).resolves.toMatchObject({
       assistantRoot: { sawText: true, didDurablyFlush: true },
     });
+  });
+
+  it('retries both a failed rewrite candidate and a newer failed active segment', async () => {
+    const { session } = createSessionStub();
+    let segmentOrdinal = 0;
+    const writer = createStreamedTranscriptWriter({
+      provider: 'codex' as any,
+      session: session as any,
+      makeLocalId: () => `segment-${++segmentOrdinal}`,
+      checkpointIntervalMs: 10_000,
+      checkpointMinChars: 999,
+    });
+
+    writer.appendAssistantDelta('Draft.');
+    await writer.flushAll({ reason: 'tool-call-boundary' });
+    session.sendAgentMessageCommitted = async () => {
+      throw new Error('transcript unavailable');
+    };
+
+    expect(writer.overrideAssistantText('Final.')).toBe(true);
+    writer.appendAssistantDelta('Newer.');
+    await expect(writer.flushAll({ reason: 'turn-end' })).resolves.toMatchObject({
+      assistantRoot: { sawText: true, didDurablyFlush: false },
+    });
+
+    const retryCalls: Array<{ localId: string; body: unknown }> = [];
+    session.sendAgentMessageCommitted = async (_provider, body, opts) => {
+      retryCalls.push({ localId: String(opts.localId), body });
+    };
+    await expect(writer.flushAll({ reason: 'tool-call-boundary' })).resolves.toMatchObject({
+      assistantRoot: { sawText: true, didDurablyFlush: true },
+    });
+    expect(retryCalls).toEqual(expect.arrayContaining([
+      { localId: 'segment-1', body: { type: 'message', message: 'Final.' } },
+      { localId: 'segment-2', body: { type: 'message', message: 'Newer.' } },
+    ]));
   });
 
   it('does not create a new durable segment when overrideAssistantText is called before any streamed delta', async () => {
