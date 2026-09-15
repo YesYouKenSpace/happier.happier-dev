@@ -554,6 +554,30 @@ describe('createStreamedTranscriptWriter', () => {
     expect(writer.overrideAssistantText('Stale.')).toBe(false);
   });
 
+  it('keeps a completed tool-boundary rewrite complete when the turn aborts', async () => {
+    const { session, durableCalls } = createSessionStub();
+    const writer = createStreamedTranscriptWriter({
+      provider: 'codex' as any,
+      session: session as any,
+      makeLocalId: () => 'segment-1',
+      checkpointIntervalMs: 10_000,
+      checkpointMinChars: 999,
+    });
+
+    writer.appendAssistantDelta('Draft.');
+    await writer.flushAll({ reason: 'tool-call-boundary' });
+    expect(writer.overrideAssistantText('Final.')).toBe(true);
+
+    await expect(writer.flushAll({ reason: 'abort', interruptedReason: 'cancelled' })).resolves.toMatchObject({
+      assistantRoot: { sawText: true, didDurablyFlush: true },
+    });
+    expect(durableCalls.at(-1)).toMatchObject({
+      localId: 'segment-1',
+      body: { type: 'message', message: 'Final.' },
+      meta: { happierStreamSegmentV1: expect.objectContaining({ segmentState: 'complete' }) },
+    });
+  });
+
   it('reports and retries a failed replacement of a tool-boundary rewrite candidate', async () => {
     const { session } = createSessionStub();
     const writer = createStreamedTranscriptWriter({

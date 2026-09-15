@@ -61,13 +61,17 @@ function didSegmentDurablyFlush(segment: SegmentRuntime, expectedState: SegmentS
 function buildFlushSummary(params: {
   flushedSegments: ReadonlyArray<SegmentRuntime>;
   expectedState: SegmentState;
+  completeSegments?: ReadonlySet<SegmentRuntime>;
 }): StreamedTranscriptFlushSummary {
   const segments: StreamedTranscriptSegmentFlushSummary[] = params.flushedSegments.map((segment) => ({
     kind: segment.kind,
     sidechainId: segment.sidechainId,
     localId: segment.segmentLocalId,
     sawText: segment.accumulatedText.length > 0,
-    didDurablyFlush: didSegmentDurablyFlush(segment, params.expectedState),
+    didDurablyFlush: didSegmentDurablyFlush(
+      segment,
+      params.completeSegments?.has(segment) ? 'complete' : params.expectedState,
+    ),
     lastCommittedState: segment.lastCommittedState,
     commitResult: segment.lastCommitResult,
   }));
@@ -599,8 +603,8 @@ export function createStreamedTranscriptWriter(params: {
     const rewriteCandidateSet = new Set(rewriteCandidatesToDrain);
 
     for (const segment of rewriteCandidatesToDrain) {
-      if (!segment.isCommittingDurable && !didSegmentDurablyFlush(segment, state)) {
-        commitDurableSnapshot(segment, { state, interruptedReason: opts.interruptedReason, force: true });
+      if (!segment.isCommittingDurable && !didSegmentDurablyFlush(segment, 'complete')) {
+        commitDurableSnapshot(segment, { state: 'complete', force: true });
       }
     }
 
@@ -628,9 +632,10 @@ export function createStreamedTranscriptWriter(params: {
       ...rewriteCandidatesToDrain,
     ]));
     for (const segment of settledSegments) {
+      const expectedState = rewriteCandidateSet.has(segment) ? 'complete' : state;
       if (
         segment.commitMode === 'compatibility'
-        && (segment.lastCommitError !== null || !didSegmentDurablyFlush(segment, state))
+        && (segment.lastCommitError !== null || !didSegmentDurablyFlush(segment, expectedState))
       ) {
         if (rewriteCandidateSet.has(segment)) {
           pendingRewriteRetries.add(segment);
@@ -641,7 +646,10 @@ export function createStreamedTranscriptWriter(params: {
     }
     const failedExactSegment = settledSegments.find((segment) =>
       segment.commitMode === 'exact'
-      && (segment.lastCommitError !== null || !didSegmentDurablyFlush(segment, state)),
+      && (
+        segment.lastCommitError !== null
+        || !didSegmentDurablyFlush(segment, rewriteCandidateSet.has(segment) ? 'complete' : state)
+      ),
     );
     if (failedExactSegment) {
       const reason = failedExactSegment.lastCommitError instanceof Error
@@ -650,7 +658,11 @@ export function createStreamedTranscriptWriter(params: {
       throw new Error(`Exact transcript segment commit failed for ${failedExactSegment.segmentLocalId}: ${reason}`);
     }
     for (const segment of settledSegments) logUnresolvedLiveFailureSummary(segment);
-    return buildFlushSummary({ flushedSegments: settledSegments, expectedState: state });
+    return buildFlushSummary({
+      flushedSegments: settledSegments,
+      expectedState: state,
+      completeSegments: rewriteCandidateSet,
+    });
   };
 
   const flushAllThroughDurableAdmission = async (opts: {
