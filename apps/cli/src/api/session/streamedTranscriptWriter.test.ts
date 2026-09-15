@@ -578,6 +578,36 @@ describe('createStreamedTranscriptWriter', () => {
     expect(writer.overrideAssistantText('Stale.')).toBe(false);
   });
 
+  it('does not reuse a durably cleared segment for later text', async () => {
+    const { session, durableCalls } = createSessionStub();
+    let segmentOrdinal = 0;
+    const writer = createStreamedTranscriptWriter({
+      provider: TEST_PROVIDER,
+      session,
+      makeLocalId: () => `segment-${++segmentOrdinal}`,
+      checkpointIntervalMs: 10_000,
+      checkpointMinChars: 999,
+    });
+
+    writer.appendAssistantDelta('Draft.');
+    expect(writer.overrideAssistantText('')).toBe(true);
+    await writer.flushAll({ reason: 'turn-end' });
+
+    writer.appendAssistantDelta('Next turn.');
+    await writer.flushAll({ reason: 'turn-end' });
+
+    expect(durableCalls).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        localId: 'segment-1',
+        body: { type: 'message', message: '' },
+      }),
+      expect.objectContaining({
+        localId: 'segment-2',
+        body: { type: 'message', message: 'Next turn.' },
+      }),
+    ]));
+  });
+
   it('keeps a completed tool-boundary rewrite complete when the turn aborts', async () => {
     const { session, durableCalls } = createSessionStub();
     const writer = createStreamedTranscriptWriter({

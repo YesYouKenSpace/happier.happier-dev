@@ -54,7 +54,6 @@ type SegmentRuntime = StreamedTranscriptSegmentRuntime;
 const DURABLE_COMMIT_FAILURE_RETRY_DELAY_MS = 2_000;
 
 function didSegmentDurablyFlush(segment: SegmentRuntime, expectedState: SegmentState): boolean {
-  if (segment.accumulatedText.length === 0) return false;
   return segment.lastCommittedTextVersion === segment.textVersion && segment.lastCommittedState === expectedState;
 }
 
