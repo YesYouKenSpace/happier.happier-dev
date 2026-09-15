@@ -403,6 +403,7 @@ describe('createAcpRuntime (transcript streaming vNext)', () => {
   it('replaces the just-flushed durable segment when a divergent turn snapshot follows a tool boundary', async () => {
     const backend = createFakeAcpRuntimeBackend({ sessionId: 'sess_main' });
     const tracker = createTurnAssistantPreviewTracker();
+    const messageBuffer = new MessageBuffer();
     const durableCalls: Array<{ localId: string; body: ACPMessageData; meta?: Record<string, unknown> }> = [];
     const session = createBasicSessionClientWithOverrides({
       sendAgentMessageCommitted: async (_provider, body, opts) => {
@@ -413,7 +414,7 @@ describe('createAcpRuntime (transcript streaming vNext)', () => {
       provider: 'pi',
       directory: '/tmp',
       session,
-      messageBuffer: new MessageBuffer(),
+      messageBuffer,
       mcpServers: {},
       permissionHandler: createApprovedPermissionHandler(),
       onThinkingChange: () => {},
@@ -430,6 +431,10 @@ describe('createAcpRuntime (transcript streaming vNext)', () => {
     backend.emit({ type: 'model-output', fullText: 'Final.', fullTextScope: 'turn' } satisfies AgentMessage);
 
     expect(tracker.getPreview()).toBe('Final.');
+    expect(messageBuffer.getMessages().map((message) => [message.type, message.content])).toEqual([
+      ['assistant', 'Final.'],
+      ['tool', 'Executing: Read'],
+    ]);
     await runtime.flushTurn();
 
     const completedAssistantMessages = durableCalls.flatMap((call) => {
