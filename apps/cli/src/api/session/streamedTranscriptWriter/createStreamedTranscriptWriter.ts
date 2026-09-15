@@ -632,12 +632,14 @@ export function createStreamedTranscriptWriter(params: {
       ...rewriteCandidatesToDrain,
     ]));
     for (const segment of settledSegments) {
-      const expectedState = rewriteCandidateSet.has(segment) ? 'complete' : state;
+      const isRewriteCandidate = rewriteCandidateSet.has(segment)
+        || toolBoundaryRewriteCandidates.get(segment.key) === segment;
+      const expectedState = isRewriteCandidate ? 'complete' : state;
       if (
         segment.commitMode === 'compatibility'
         && (segment.lastCommitError !== null || !didSegmentDurablyFlush(segment, expectedState))
       ) {
-        if (rewriteCandidateSet.has(segment)) {
+        if (isRewriteCandidate) {
           pendingRewriteRetries.add(segment);
         } else {
           segments.set(segment.key, segment);

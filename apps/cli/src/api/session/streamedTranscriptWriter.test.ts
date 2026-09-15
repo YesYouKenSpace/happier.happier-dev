@@ -578,6 +578,38 @@ describe('createStreamedTranscriptWriter', () => {
     });
   });
 
+  it('does not append post-tool text into a failed tool-boundary segment', async () => {
+    const { session } = createSessionStub();
+    let segmentOrdinal = 0;
+    const writer = createStreamedTranscriptWriter({
+      provider: 'codex' as any,
+      session: session as any,
+      makeLocalId: () => `segment-${++segmentOrdinal}`,
+      checkpointIntervalMs: 10_000,
+      checkpointMinChars: 999,
+    });
+
+    session.sendAgentMessageCommitted = async () => {
+      throw new Error('transcript unavailable');
+    };
+    writer.appendAssistantDelta('Before tool.');
+    await expect(writer.flushAll({ reason: 'tool-call-boundary' })).resolves.toMatchObject({
+      assistantRoot: { sawText: true, didDurablyFlush: false },
+    });
+
+    const retryCalls: Array<{ localId: string; body: unknown }> = [];
+    session.sendAgentMessageCommitted = async (_provider, body, opts) => {
+      retryCalls.push({ localId: String(opts.localId), body });
+    };
+    writer.appendAssistantDelta('After tool.');
+    await writer.flushAll({ reason: 'turn-end' });
+
+    expect(retryCalls).toEqual(expect.arrayContaining([
+      { localId: 'segment-1', body: { type: 'message', message: 'Before tool.' } },
+      { localId: 'segment-2', body: { type: 'message', message: 'After tool.' } },
+    ]));
+  });
+
   it('reports and retries a failed replacement of a tool-boundary rewrite candidate', async () => {
     const { session } = createSessionStub();
     const writer = createStreamedTranscriptWriter({
