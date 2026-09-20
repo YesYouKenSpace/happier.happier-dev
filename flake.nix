@@ -15,7 +15,7 @@
     {
       devShells = forEachSystem (pkgs:
         let
-          # Repo pins node 24 in mise.toml; packageManager pins yarn@1.22.22.
+          # The dev shell pins Node 24; packageManager pins yarn@1.22.22.
           nodejs = pkgs.nodejs_24;
           # Align yarn's bundled node with the shell's node so versions match.
           yarn = pkgs.yarn.override { inherit nodejs; };

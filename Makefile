@@ -1,4 +1,6 @@
-.PHONY: apk.docker cli.rebuild
+.PHONY: apk.docker cli.rebuild cli.install
+
+HAPPIER_BIN := $(HOME)/.happier-stack/bin/happier
 
 gh.ci.mobile.build:
 	gh workflow run build-ui-mobile-local.yml \
@@ -36,21 +38,22 @@ apk.docker:
 		--output type=local,dest=apps/ui/dist/apk \
 		.
 
-# Rebuild the local CLI and refresh BOTH runtime outputs, then restart the daemon.
+# Rebuild the local CLI and refresh both runtime outputs, then restart the daemon.
 # WHY: `yarn cli:build` rebuilds only dist/ (used by the interactive `happier`
 # wrapper) plus shared deps like @happier-dev/protocol. The launchd daemon runs a
 # SEPARATE bundle, apps/cli/package-dist/, which build.mjs never syncs. So a bare
 # rebuild leaves the daemon on a stale bundle; once a shared dep's exports change,
 # the daemon crash-loops at ESM load and `happier service start` hangs forever.
 # This target runs the missing syncPackageDist step and restarts the daemon, so the
-# interactive CLI and the daemon always run the same fresh code.
-#   Override the node pin (e.g. no mise): make cli.rebuild NODE24=
-NODE24 ?= mise exec node@24 --
+# interactive CLI and daemon always run the same fresh code. This also ensures the
+# local shim exists, but does not edit shell startup files.
 cli.rebuild:
 	@echo ">> building CLI (dist/ + shared deps) ..."
-	$(NODE24) yarn cli:build
+	yarn cli:build
 	@echo ">> syncing package-dist/ (daemon bundle) — the step 'yarn cli:build' skips ..."
-	$(NODE24) node apps/cli/scripts/syncPackageDist.mjs
+	node apps/cli/scripts/syncPackageDist.mjs
+	@echo ">> ensuring local happier CLI shim ..."
+	yarn cli:activate:path
 	@echo ">> restarting daemon service ..."
-	happier service restart
-	@happier service status
+	$(HAPPIER_BIN) service restart
+	$(HAPPIER_BIN) service status
