@@ -3889,6 +3889,17 @@ localTailscale: {
         errorSubtitle: "macOS 通知権限を読み取れませんでした",
       },
     },
+    web: {
+      title: "ブラウザ通知",
+      footer: "このブラウザタブが開いている間のみ通知が表示されます。",
+      permission: {
+        title: "ブラウザ通知の権限",
+        grantedSubtitle: "有効 — このブラウザは通知を表示します。",
+        deniedSubtitle: "ブロックされています。ブラウザの設定でこのサイトの通知を許可してください。",
+        defaultSubtitle: "タップしてこのブラウザで通知を許可します。",
+        requestingSubtitle: "リクエスト中…",
+      },
+    },
     push: {
       title: "プッシュ通知",
       footer:

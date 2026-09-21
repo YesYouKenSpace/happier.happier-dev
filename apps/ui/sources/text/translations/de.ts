@@ -3331,6 +3331,17 @@ export const de: TranslationStructure = {
                 errorSubtitle: 'Die macOS-Benachrichtigungsberechtigung lässt sich nicht lesen',
             },
         },
+        web: {
+            title: 'Browser-Benachrichtigungen',
+            footer: 'Benachrichtigungen erscheinen nur, während dieser Browser-Tab geöffnet ist.',
+            permission: {
+                title: 'Browser-Benachrichtigungsberechtigung',
+                grantedSubtitle: 'Aktiviert – dieser Browser zeigt Benachrichtigungen an.',
+                deniedSubtitle: 'Blockiert. Erlaube Benachrichtigungen für diese Website in den Browsereinstellungen.',
+                defaultSubtitle: 'Antippen, um Benachrichtigungen in diesem Browser zu erlauben.',
+                requestingSubtitle: 'Wird angefragt…',
+            },
+        },
         push: {
             title: 'Push-Benachrichtigungen',
             footer: 'Diese Benachrichtigungen sendet deine CLI über Expo, wenn deine Session Aufmerksamkeit braucht.',

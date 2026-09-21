@@ -3273,6 +3273,17 @@ const zhHantOverrides: DeepPartial<TranslationStructure> = {
                 errorSubtitle: '無法讀取 macOS 通知權限',
             },
         },
+        web: {
+            title: '瀏覽器通知',
+            footer: '僅當此瀏覽器分頁開啟時才會顯示通知。',
+            permission: {
+                title: '瀏覽器通知權限',
+                grantedSubtitle: '已啟用 — 此瀏覽器將顯示通知。',
+                deniedSubtitle: '已封鎖。請在瀏覽器設定中允許此網站的通知。',
+                defaultSubtitle: '點一下以允許此瀏覽器顯示通知。',
+                requestingSubtitle: '要求中…',
+            },
+        },
         push: {
             title: '推播通知',
             footer: '當工作階段需要你注意時，這些通知會由你的 CLI 透過 Expo 傳送。',

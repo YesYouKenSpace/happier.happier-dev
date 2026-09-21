@@ -1,5 +1,6 @@
 import * as React from 'react';
 
+import { Platform } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 import { useRouter } from 'expo-router';
 
@@ -17,6 +18,7 @@ import { t } from '@/text';
 import { sync } from '@/sync/sync';
 import { isTauriDesktop } from '@/utils/platform/tauri';
 import { runPushNotificationPermissionPriming } from '@/activity/notifications/permission/pushNotificationPermissionPriming';
+import { isWebNotificationSupported } from '@/activity/notifications/channels/webNotificationApi';
 
 import {
     DEFAULT_NOTIFICATIONS_SETTINGS_V1,
@@ -35,6 +37,7 @@ import {
     updateNotificationChannelById,
 } from './notificationChannels';
 import { useTauriNotificationPermissionDiagnostics } from './useTauriNotificationPermissionDiagnostics';
+import { useWebNotificationPermissionDiagnostics } from './useWebNotificationPermissionDiagnostics';
 import { Icon } from '@/components/ui/icons/Icon';
 
 type ForegroundBehavior = 'full' | 'silent' | 'off';
@@ -57,6 +60,11 @@ export const NotificationsSettingsView = React.memo(function NotificationsSettin
     const showConnectedServiceNotificationTopics = showConnectedServiceAccountSwitchNotifications || showConnectedServiceQuotaNotifications;
     const isDesktopNotificationsSupported = React.useMemo(() => isTauriDesktop(), []);
     const desktopNotificationPermission = useTauriNotificationPermissionDiagnostics(isDesktopNotificationsSupported);
+    const isWebNotificationsSupported = React.useMemo(
+        () => Platform.OS === 'web' && !isTauriDesktop() && isWebNotificationSupported(),
+        [],
+    );
+    const webNotificationPermission = useWebNotificationPermissionDiagnostics(isWebNotificationsSupported);
 
     const notificationsRaw = isRecord(settings) ? settings.notificationsSettingsV1 : undefined;
     const notifications = React.useMemo(() => {
@@ -286,6 +294,26 @@ export const NotificationsSettingsView = React.memo(function NotificationsSettin
             ? theme.colors.text.secondary
             : theme.colors.state.neutral.foreground;
 
+    const webPermissionSubtitle = React.useMemo(() => {
+        switch (webNotificationPermission.status) {
+            case 'granted':
+                return t('settingsNotifications.web.permission.grantedSubtitle');
+            case 'denied':
+                return t('settingsNotifications.web.permission.deniedSubtitle');
+            case 'requesting':
+                return t('settingsNotifications.web.permission.requestingSubtitle');
+            case 'default':
+            default:
+                return t('settingsNotifications.web.permission.defaultSubtitle');
+        }
+    }, [webNotificationPermission.status]);
+
+    const webPermissionIconColor = webNotificationPermission.status === 'granted'
+        ? theme.colors.state.success.foreground
+        : webNotificationPermission.status === 'requesting'
+            ? theme.colors.text.secondary
+            : theme.colors.state.neutral.foreground;
+
     return (
         <ItemList style={{ paddingTop: 0 }} testID="settings-notifications-screen">
             <ItemGroup
@@ -483,6 +511,24 @@ export const NotificationsSettingsView = React.memo(function NotificationsSettin
                             ? undefined
                             : () => { void desktopNotificationPermission.requestPermission(); }}
                         showChevron={desktopNotificationPermission.status !== 'granted'}
+                    />
+                </ItemGroup>
+            ) : null}
+
+            {isWebNotificationsSupported ? (
+                <ItemGroup
+                    title={t('settingsNotifications.web.title')}
+                    footer={t('settingsNotifications.web.footer')}
+                >
+                    <Item
+                        testID="settings-notifications-web-permission"
+                        title={t('settingsNotifications.web.permission.title')}
+                        subtitle={webPermissionSubtitle}
+                        icon={<Icon name="globe" size={29} color={webPermissionIconColor} />}
+                        onPress={webNotificationPermission.status === 'granted'
+                            ? undefined
+                            : () => { void webNotificationPermission.requestPermission(); }}
+                        showChevron={webNotificationPermission.status !== 'granted'}
                     />
                 </ItemGroup>
             ) : null}
