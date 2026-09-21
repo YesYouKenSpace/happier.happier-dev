@@ -317,6 +317,13 @@ export class SessionSharingError extends Error {
     }
 }
 
+export class PublicSharingDisabledError extends SessionSharingError {
+    constructor() {
+        super('Public sharing is disabled on this client');
+        this.name = 'PublicSharingDisabledError';
+    }
+}
+
 /**
  * Error thrown when a requested share does not exist
  *

@@ -1,7 +1,8 @@
 import { flushHookEffects } from '@/dev/testkit/hooks/flushHookEffects';
 import { renderScreen } from '@/dev/testkit';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { installPublicShareViewerCommonModuleMocks } from './publicShareViewerTestHelpers';
+import { buildServerFeaturesResponse } from '@/hooks/server/serverFeaturesTestUtils';
 
 import { encodeBase64 } from '@/encryption/base64';
 import { AES256Encryption } from '@/sync/encryption/encryptor';
@@ -105,6 +106,18 @@ describe('PublicShareViewerScreen (e2ee)', () => {
             name: 'AskUserQuestion', result: { answers: { 'Choose a mode': 'Fast' } },
         } });
     });
+
+    beforeEach(async () => {
+        vi.stubEnv('EXPO_PUBLIC_HAPPIER_FEATURE_SHARING_PUBLIC__ENABLED', 'true');
+        const { getServerFeaturesSnapshot, resetServerFeaturesClientForTests } = await import('@/sync/api/capabilities/serverFeaturesClient');
+        resetServerFeaturesClientForTests();
+        serverFetchSpy.mockReset();
+        serverFetchSpy.mockResolvedValueOnce(Response.json(buildServerFeaturesResponse()));
+        await getServerFeaturesSnapshot();
+        serverFetchSpy.mockReset();
+    });
+
+    afterEach(() => { vi.unstubAllEnvs(); });
 
     it('fails closed when an encrypted share message cannot be decrypted instead of silently skipping it', async () => {
         transcriptListSpy.mockClear();

@@ -664,6 +664,12 @@ Sharing rules:
 - Plain sessions can share without `encryptedDataKey` because access is server-managed.
 - E2EE sessions and public shares require a valid encrypted data-key envelope.
 
+The current public-link protocol derives its DEK wrapping key from the public token and sends
+both token and wrapped DEK to the relay. This does not keep the shared session's DEK secret from
+that relay. The yesyoukenspace fork's development clients therefore disable public sharing by
+default through a local build policy. See [client public sharing](yesyoukenspace/public-sharing.md)
+for explicit opt-in, retained link deletion, and the trusted-client boundary.
+
 Feature gates:
 
 - `encryption.plaintextStorage`

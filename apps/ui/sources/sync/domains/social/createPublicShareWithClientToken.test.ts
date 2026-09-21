@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createPublicShareWithClientToken } from "./createPublicShareWithClientToken";
-import type { PublicSessionShare } from "./sharingTypes";
+import { PublicSharingDisabledError, type PublicSessionShare } from "./sharingTypes";
 
 function createShare(overrides: Partial<PublicSessionShare> = {}): PublicSessionShare {
   return {
@@ -18,6 +18,34 @@ function createShare(overrides: Partial<PublicSessionShare> = {}): PublicSession
 }
 
 describe("createPublicShareWithClientToken", () => {
+  beforeEach(() => {
+    vi.stubEnv('EXPO_PUBLIC_HAPPIER_FEATURE_SHARING_PUBLIC__ENABLED', 'true');
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it.each(['e2ee', 'plain'] as const)('blocks %s creation before reading keys or exporting a token by default', async (sessionEncryptionMode) => {
+    vi.stubEnv('EXPO_PUBLIC_HAPPIER_FEATURE_SHARING_PUBLIC__ENABLED', undefined);
+    const effects: string[] = [];
+    let cachedToken: string | null = 'previous-token';
+
+    await expect(createPublicShareWithClientToken({
+      credentials: { t: 'synthetic' },
+      sessionId: 'session-1',
+      sessionEncryptionMode,
+      isConsentRequired: true,
+      tokenCache: { get: () => cachedToken, set: (value) => { cachedToken = value; } },
+      generateTokenHex: () => { effects.push('token'); return 'new-token'; },
+      getSessionDataKey: () => { effects.push('key'); return new Uint8Array(32); },
+      encryptDataKeyForPublicShare: async () => { effects.push('wrap'); return 'wrapped-key'; },
+      api: {
+        createPublicShare: async () => { effects.push('upload'); return createShare(); },
+      },
+    })).rejects.toBeInstanceOf(PublicSharingDisabledError);
+
+    expect(effects).toEqual([]);
+    expect(cachedToken).toBeNull();
+  });
+
   it("stores and merges the generated token only after the create commits", async () => {
     const calls: string[] = [];
     let cachedToken: string | null = null;

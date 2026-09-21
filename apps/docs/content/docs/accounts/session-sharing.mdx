@@ -8,7 +8,13 @@ Sharing lets someone else see a session you are running. Two mechanisms, and the
 <Callout type="warn" title="Availability">
 Direct sharing needs **Friends**, which is experimental and off by default. Turn it on under **Settings → Features**. It is deliberately not switched on by the Experiments master toggle, so enabling experiments generally does not enable it.
 
-Public links do not depend on Friends and are available without turning anything on.
+Public links do not depend on Friends. In the yesyoukenspace fork's development source, public sharing is disabled by default on native, web, and desktop clients. This is a client-build restriction, not an Account preference or relay setting, and does not describe already-installed upstream releases.
+
+Builders can explicitly opt in with `EXPO_PUBLIC_HAPPIER_FEATURE_SHARING_PUBLIC__ENABLED=true` when bundling the client. An explicit client build-policy deny for `sharing.public` still wins, and the relay must advertise support. Without opt-in, creation, regeneration, link display/copy, and public-link viewing are blocked; existing links can still be inspected and deleted.
+</Callout>
+
+<Callout type="warn" title="Public-link encryption limit">
+The existing public-link protocol sends the relay both a token and the session key encrypted under a token-derived key. The relay can therefore recover that session key. Opting in retains this protocol; disabling the client feature does not repair it or retract keys already disclosed. Trust the client bundle: a relay that controls the web application's JavaScript can replace client-side checks.
 </Callout>
 
 ## What gets logged

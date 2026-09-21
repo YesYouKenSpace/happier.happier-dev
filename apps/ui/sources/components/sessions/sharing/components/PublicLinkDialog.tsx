@@ -22,6 +22,7 @@ import { Icon } from '@/components/ui/icons/Icon';
 
 export interface PublicLinkDialogProps {
     publicShare: PublicSessionShare | null;
+    publicSharingEnabled: boolean;
     onCreate: (options: {
         expiresInDays?: number;
         maxUses?: number;
@@ -32,6 +33,7 @@ export interface PublicLinkDialogProps {
 
 export const PublicLinkDialog = memo(function PublicLinkDialog({
     publicShare,
+    publicSharingEnabled,
     onCreate,
     onDelete,
     onClose: _onClose,
@@ -39,7 +41,6 @@ export const PublicLinkDialog = memo(function PublicLinkDialog({
     const { theme } = useUnistyles();
     const styles = stylesheet;
 
-    const [shareUrl, setShareUrl] = useState<string | null>(null);
     const [isConfiguring, setIsConfiguring] = useState(false);
     const [expiresInDays, setExpiresInDays] = useState<number | undefined>(7);
     const [maxUses, setMaxUses] = useState<number | undefined>(undefined);
@@ -65,15 +66,9 @@ export const PublicLinkDialog = memo(function PublicLinkDialog({
         return `${webAppUrl}${path}`;
     }, []);
 
-    useEffect(() => {
-        if (!publicShare?.token) {
-            setShareUrl(null);
-            return;
-        }
-
-        const url = buildPublicShareUrl(publicShare.token);
-        setShareUrl(url);
-    }, [buildPublicShareUrl, publicShare?.token]);
+    const shareUrl = publicSharingEnabled && publicShare?.token
+        ? buildPublicShareUrl(publicShare.token)
+        : null;
 
     useEffect(() => {
         if (!shareUrl) return;
@@ -83,6 +78,7 @@ export const PublicLinkDialog = memo(function PublicLinkDialog({
     }, [shareUrl]);
 
     const handleCreate = async () => {
+        if (!publicSharingEnabled) return;
         try {
             await Promise.resolve(onCreate({
                 expiresInDays,
@@ -161,7 +157,17 @@ export const PublicLinkDialog = memo(function PublicLinkDialog({
                 onScroll={wheelScrollHandlers.onScroll}
                 scrollEventThrottle={16}
             >
-                        {!publicShare || isConfiguring ? (
+                        {!publicSharingEnabled ? (
+                            <ItemGroup>
+                                <Item
+                                    testID="public-sharing-disabled"
+                                    title={t('session.sharing.publicLink')}
+                                    subtitle={t('common.disabled')}
+                                    showChevron={false}
+                                />
+                            </ItemGroup>
+                        ) : null}
+                        {publicSharingEnabled && (!publicShare || isConfiguring) ? (
                             <>
                                 <View style={styles.section}>
                                     <Text style={styles.descriptionText}>
@@ -239,18 +245,20 @@ export const PublicLinkDialog = memo(function PublicLinkDialog({
                                 />
                             </View>
                         </>
-                    ) : (
+                    ) : publicShare ? (
                         <>
-                            <ItemGroup>
-                                <Item
-                                    title={t('session.sharing.regeneratePublicLink')}
-                                    onPress={() => {
-                                        setIsConfiguring(true);
-                                        requestAnimationFrame(() => scrollRef.current?.scrollTo({ y: 0, animated: false }));
-                                    }}
-                                    icon={<Icon name="arrow-clockwise" size={29} color={theme.colors.accent.blue} />}
-                                />
-                            </ItemGroup>
+                            {publicSharingEnabled ? (
+                                <ItemGroup>
+                                    <Item
+                                        title={t('session.sharing.regeneratePublicLink')}
+                                        onPress={() => {
+                                            setIsConfiguring(true);
+                                            requestAnimationFrame(() => scrollRef.current?.scrollTo({ y: 0, animated: false }));
+                                        }}
+                                        icon={<Icon name="arrow-clockwise" size={29} color={theme.colors.accent.blue} />}
+                                    />
+                                </ItemGroup>
+                            ) : null}
 
                             {shareUrl ? (
                                 <View style={styles.qrSection}>
@@ -284,7 +292,7 @@ export const PublicLinkDialog = memo(function PublicLinkDialog({
                             ) : null}
 
                             <ItemGroup>
-                                {publicShare.token ? (
+                                {publicSharingEnabled ? (publicShare.token ? (
                                     <Item
                                         title={t('session.sharing.linkToken')}
                                         subtitle={publicShare.token}
@@ -297,7 +305,7 @@ export const PublicLinkDialog = memo(function PublicLinkDialog({
                                         subtitle={t('session.sharing.tokenNotRecoverableDescription')}
                                         showChevron={false}
                                     />
-                                )}
+                                )) : null}
 
                                 {publicShare.expiresAt ? (
                                     <Item
@@ -338,7 +346,7 @@ export const PublicLinkDialog = memo(function PublicLinkDialog({
                                 />
                             </ItemGroup>
                         </>
-                    )}
+                    ) : null}
             </ScrollView>
         </View>
     );

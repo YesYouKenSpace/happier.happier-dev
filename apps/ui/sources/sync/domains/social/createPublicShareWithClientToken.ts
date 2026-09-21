@@ -1,4 +1,5 @@
-import type { PublicSessionShare } from "./sharingTypes";
+import { getFeatureBuildPolicyDecision } from '@/sync/domains/features/featureBuildPolicy';
+import { PublicSharingDisabledError, type PublicSessionShare } from "./sharingTypes";
 
 export type PublicShareTokenCache = Readonly<{
   get: () => string | null;
@@ -33,6 +34,9 @@ export async function createPublicShareWithClientToken<CredentialsT>(params: Rea
   api: CreatePublicShareApi<CredentialsT>;
 }>): Promise<PublicSessionShare> {
   try {
+    if (getFeatureBuildPolicyDecision('sharing.public') === 'deny') {
+      throw new PublicSharingDisabledError();
+    }
     const token = params.generateTokenHex().trim();
     if (!token) {
       throw new Error("createPublicShareWithClientToken: token is required");

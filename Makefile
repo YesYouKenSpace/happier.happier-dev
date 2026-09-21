@@ -1,4 +1,4 @@
-.PHONY: apk.docker cli.rebuild cli.install
+.PHONY: apk.docker cli.rebuild cli.install test-public-sharing
 
 HAPPIER_BIN := $(HOME)/.happier-stack/bin/happier
 
@@ -57,3 +57,7 @@ cli.rebuild:
 	@echo ">> restarting daemon service ..."
 	$(HAPPIER_BIN) service restart
 	$(HAPPIER_BIN) service status
+
+test-public-sharing:
+	yarn --cwd apps/ui vitest run sources/sync/domains/features sources/hooks/server/useFeature sources/sync/domains/social sources/sync/api/social sources/sync/encryption/publicShareEncryption.test.ts sources/components/sessions/sharing sources/__tests__/app/share "sources/__tests__/routes/(app)/session/[id]/sharing.permission.test.tsx" "sources/__tests__/routes/(app)/session/[id]/sharing.publicFeature.test.tsx"
+	yarn --cwd apps/ui typecheck

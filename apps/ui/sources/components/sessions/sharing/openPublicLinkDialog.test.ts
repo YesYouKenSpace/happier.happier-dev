@@ -61,6 +61,7 @@ describe('openPublicLinkDialog', () => {
 
         await openPublicLinkDialog({
             publicShare: null,
+            publicSharingEnabled: true,
             onCreate,
             onDelete: vi.fn(),
         });

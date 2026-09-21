@@ -2,6 +2,7 @@ import type { AuthCredentials } from '@/auth/storage/tokenStorage';
 import { backoff } from '@/utils/timing/time';
 import { createSessionSocialRequest } from '@/sync/api/social/createSessionSocialRequest';
 import { serverFetch } from '@/sync/http/client';
+import { getFeatureBuildPolicyDecision } from '@/sync/domains/features/featureBuildPolicy';
 import {
     SessionShare,
     SessionShareResponse,
@@ -15,6 +16,7 @@ import {
     ShareNotFoundError,
     PublicShareNotFoundError,
     ConsentRequiredError,
+    PublicSharingDisabledError,
     SessionSharingError
 } from '@/sync/domains/social/sharingTypes';
 
@@ -205,6 +207,9 @@ export async function createPublicShare(
     sessionId: string,
     request: CreatePublicShareRequest & { token: string }
 ): Promise<PublicSessionShare> {
+    if (getFeatureBuildPolicyDecision('sharing.public') === 'deny') {
+        throw new PublicSharingDisabledError();
+    }
     return await backoff(async () => {
         const scopedRequest = createSessionSocialRequest(credentials, sessionId);
         const response = await scopedRequest(`/v1/sessions/${sessionId}/public-share`, {
@@ -297,6 +302,9 @@ export async function accessPublicShare(
     consent?: boolean,
     credentials?: AuthCredentials
 ): Promise<AccessPublicShareResponse> {
+    if (getFeatureBuildPolicyDecision('sharing.public') === 'deny') {
+        throw new PublicSharingDisabledError();
+    }
     return await backoff(async () => {
         const path = `/v1/public-share/${token}`;
         const query = new URLSearchParams();

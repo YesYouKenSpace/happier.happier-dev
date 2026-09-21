@@ -115,6 +115,7 @@ test.describe('ui e2e: plaintext mode + public share', () => {
     const uiWebEnv = {
       ...process.env,
       EXPO_PUBLIC_DEBUG: '1',
+      EXPO_PUBLIC_HAPPIER_FEATURE_SHARING_PUBLIC__ENABLED: 'true',
       EXPO_PUBLIC_HAPPY_SERVER_URL: server?.baseUrl ?? '',
       EXPO_PUBLIC_HAPPY_STORAGE_SCOPE: `e2e-${run.runId}`,
       HAPPIER_E2E_UI_WEB_MODE: 'export',

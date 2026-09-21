@@ -2,8 +2,9 @@ import { flushHookEffects } from '@/dev/testkit/hooks/flushHookEffects';
 import { createDeferred, renderScreen } from '@/dev/testkit';
 import React from 'react';
 import { act } from 'react-test-renderer';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { installPublicShareViewerCommonModuleMocks } from './publicShareViewerTestHelpers';
+import { buildServerFeaturesResponse } from '@/hooks/server/serverFeaturesTestUtils';
 
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -85,12 +86,20 @@ vi.mock('react-native-safe-area-context', () => ({
 }));
 
 describe('PublicShareViewerScreen (plaintext)', () => {
-    beforeEach(() => {
+    beforeEach(async () => {
         routeState.reset();
         serverFetchSpy.mockReset();
         decryptDataKeyFromPublicShareSpy.mockReset();
         transcriptListSpy.mockClear();
+        vi.stubEnv('EXPO_PUBLIC_HAPPIER_FEATURE_SHARING_PUBLIC__ENABLED', 'true');
+        const { getServerFeaturesSnapshot, resetServerFeaturesClientForTests } = await import('@/sync/api/capabilities/serverFeaturesClient');
+        resetServerFeaturesClientForTests();
+        serverFetchSpy.mockResolvedValueOnce(Response.json(buildServerFeaturesResponse()));
+        await getServerFeaturesSnapshot();
+        serverFetchSpy.mockReset();
     });
+
+    afterEach(() => { vi.unstubAllEnvs(); });
 
     it('resolves the concrete web path token when Expo exposes its static route placeholder', async () => {
         const { resolvePublicShareTokenParam } = await import('@/app/(app)/share/[token]');

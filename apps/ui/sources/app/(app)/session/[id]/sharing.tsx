@@ -40,6 +40,8 @@ import { mergePublicShareWithCachedToken } from '@/sync/domains/social/mergePubl
 import { createPublicShareWithClientToken } from '@/sync/domains/social/createPublicShareWithClientToken';
 import { Icon } from '@/components/ui/icons/Icon';
 import { resolveSessionShareRecipientEligibility } from '@/sync/domains/social/sessionShareRecipientEligibility';
+import { useFeatureDecision } from '@/hooks/server/useFeatureDecision';
+import { resolvePreferredServerIdForSessionId } from '@/sync/runtime/orchestration/serverScopedRpc/resolvePreferredServerIdForSessionId';
 
 type SharingData = Readonly<{
     shares: SessionShare[];
@@ -57,6 +59,11 @@ function SharingManagementContent({ sessionId }: { sessionId: string }) {
     const { theme } = useUnistyles();
     const session = useSession(sessionId);
     const canManage = !session?.accessLevel || session.accessLevel === 'admin';
+    const publicSharingDecision = useFeatureDecision('sharing.public', {
+        scopeKind: 'spawn',
+        serverId: resolvePreferredServerIdForSessionId(sessionId),
+    });
+    const publicSharingEnabled = publicSharingDecision?.state === 'enabled';
 
     const publicShareTokenRef = useRef<string | null>(null);
     const sharingDataRequestRevisionRef = useRef(0);
@@ -205,6 +212,9 @@ function SharingManagementContent({ sessionId }: { sessionId: string }) {
         maxUses?: number;
         isConsentRequired: boolean;
     }): Promise<PublicSessionShare> => {
+        if (!publicSharingEnabled) {
+            throw new HappyError(t('common.disabled'), false);
+        }
         try {
             const credentials = sync.getCredentials();
 
@@ -242,7 +252,7 @@ function SharingManagementContent({ sessionId }: { sessionId: string }) {
             if (error instanceof HappyError) throw error;
             throw new HappyError(t('errors.operationFailed'), false);
         }
-    }, [sessionId, loadSharingData, session?.encryptionMode]);
+    }, [sessionId, loadSharingData, session?.encryptionMode, publicSharingEnabled]);
 
     // Handle deleting public share
     const handleDeletePublicShare = useCallback(async () => {
@@ -287,10 +297,11 @@ function SharingManagementContent({ sessionId }: { sessionId: string }) {
     const openPublicLink = useCallback(() => {
         void openPublicLinkDialog({
             publicShare,
+            publicSharingEnabled,
             onCreate: handleCreatePublicShare,
             onDelete: handleDeletePublicShare,
         });
-    }, [handleCreatePublicShare, handleDeletePublicShare, publicShare]);
+    }, [handleCreatePublicShare, handleDeletePublicShare, publicShare, publicSharingEnabled]);
 
     const openShareDialog = useCallback(() => {
         void openSessionShareDialog({
@@ -417,6 +428,14 @@ function SharingManagementContent({ sessionId }: { sessionId: string }) {
 
                 {/* Public Link */}
                 <ItemGroup title={t('session.sharing.publicLink')}>
+                    {!publicSharingEnabled ? (
+                        <Item
+                            testID="public-sharing-disabled"
+                            title={t('session.sharing.publicLink')}
+                            subtitle={publicSharingDecision === null ? t('common.loading') : t('common.disabled')}
+                            showChevron={false}
+                        />
+                    ) : null}
                     {publicShare ? (
                         <Item
                             title={t('session.sharing.publicLinkActive')}
@@ -427,14 +446,14 @@ function SharingManagementContent({ sessionId }: { sessionId: string }) {
                             icon={<Icon name="link" size={29} color={theme.colors.state.success.foreground} />}
                             onPress={openPublicLink}
                         />
-                    ) : (
+                    ) : publicSharingEnabled ? (
                         <Item
                             title={t('session.sharing.createPublicLink')}
                             subtitle={t('session.sharing.publicLinkDescription')}
                             icon={<Icon name="link" size={29} color={theme.colors.accent.blue} />}
                             onPress={openPublicLink}
                         />
-                    )}
+                    ) : null}
                 </ItemGroup>
             </ItemList>
         </>

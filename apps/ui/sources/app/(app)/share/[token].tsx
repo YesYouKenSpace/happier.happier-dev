@@ -27,6 +27,7 @@ import { ActivitySpinner } from '@/components/ui/feedback/ActivitySpinner';
 import { useHeaderHeight } from '@/utils/platform/responsive';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon } from '@/components/ui/icons/Icon';
+import { useFeatureDecision } from '@/hooks/server/useFeatureDecision';
 
 const SHARE_SCREEN_OPTIONS = { headerShown: false } as const;
 
@@ -142,6 +143,8 @@ async function normalizePlainPublicShareMessages(messages: ReadonlyArray<ApiMess
 export default memo(function PublicShareViewerScreen() {
     const { token } = useLocalSearchParams<{ token: string }>();
     const { credentials } = useAuth();
+    const publicSharingDecision = useFeatureDecision('sharing.public', { scopeKind: 'runtime' });
+    const publicSharingEnabled = publicSharingDecision?.state === 'enabled';
     const router = useRouter();
     const { theme } = useUnistyles();
     const safeArea = useSafeAreaInsets();
@@ -163,6 +166,7 @@ export default memo(function PublicShareViewerScreen() {
     }, [credentials?.token]);
 
     const load = useCallback(async (withConsent: boolean) => {
+        if (!publicSharingEnabled) return;
         const loadGeneration = ++loadGenerationRef.current;
         const requestedTokenParam = tokenParam;
         const isCurrentLoad = () => loadGenerationRef.current === loadGeneration;
@@ -345,7 +349,7 @@ export default memo(function PublicShareViewerScreen() {
             setError(t('errors.operationFailed'));
             setIsLoading(false);
         }
-    }, [authHeader, tokenParam]);
+    }, [authHeader, tokenParam, publicSharingEnabled]);
 
     useEffect(() => {
         void load(false);
@@ -359,7 +363,22 @@ export default memo(function PublicShareViewerScreen() {
         ? `public-share:${dataset.share.session.id}:${dataset.loadGeneration}`
         : null;
 
-    if (isLoading || (dataset !== null && !hasCurrentPublishedDataset)) {
+    if (publicSharingDecision !== null && !publicSharingEnabled) {
+        return (
+            <ItemList>
+                <ItemGroup>
+                    <Item
+                        testID="public-sharing-disabled"
+                        title={t('session.sharing.publicLink')}
+                        subtitle={t('common.disabled')}
+                        showChevron={false}
+                    />
+                </ItemGroup>
+            </ItemList>
+        );
+    }
+
+    if (publicSharingDecision === null || isLoading || (dataset !== null && !hasCurrentPublishedDataset)) {
         return (
             <View style={[styles.center, { backgroundColor: theme.colors.background.canvas }]}>
                 <ActivitySpinner size="large" color={theme.colors.text.link} />

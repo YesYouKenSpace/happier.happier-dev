@@ -1,10 +1,11 @@
 import React from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react-test-renderer';
 import { FeaturesResponseSchema } from '@happier-dev/protocol';
 
 import { flushHookEffects } from '@/hooks/server/serverFeatureHookHarness.testHelpers';
 import { renderScreen } from '@/dev/testkit';
+import { settingsDefaults } from '@/sync/domains/settings/settings';
 
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -65,6 +66,35 @@ function countFeaturesFetchCalls(fetchMock: { mock: { calls: Array<readonly unkn
 }
 
 describe('featureDecisionRuntime', () => {
+    describe('public sharing client flag', () => {
+        afterEach(() => vi.unstubAllEnvs());
+
+        it.each([
+            { optIn: undefined, deny: '', expected: 'disabled' },
+            { optIn: '', deny: '', expected: 'disabled' },
+            { optIn: 'false', deny: '', expected: 'disabled' },
+            { optIn: '0', deny: '', expected: 'disabled' },
+            { optIn: 'invalid', deny: '', expected: 'disabled' },
+            { optIn: 'true', deny: '', expected: 'enabled' },
+            { optIn: 'true', deny: 'sharing.public', expected: 'disabled' },
+        ])('resolves $optIn with deny=$deny to $expected despite server/account opt-in', async ({ optIn, deny, expected }) => {
+            vi.stubEnv('EXPO_PUBLIC_HAPPIER_FEATURE_SHARING_PUBLIC__ENABLED', optIn);
+            vi.stubEnv('EXPO_PUBLIC_HAPPIER_BUILD_FEATURES_DENY', deny);
+            vi.stubEnv('EXPO_PUBLIC_HAPPIER_BUILD_FEATURES_ALLOW', 'sharing.public,sharing.session');
+            const { resolveRuntimeFeatureDecisionFromSnapshot } = await import('./featureDecisionRuntime');
+            const settings = { ...settingsDefaults, experiments: true, featureToggles: { 'sharing.public': true } };
+            const snapshot = {
+                status: 'ready' as const,
+                features: FeaturesResponseSchema.parse({ features: { sharing: { public: { enabled: true }, session: { enabled: true } } } }),
+            };
+
+            expect(resolveRuntimeFeatureDecisionFromSnapshot({ featureId: 'sharing.public', settings, snapshot })?.state)
+                .toBe(expected);
+            expect(resolveRuntimeFeatureDecisionFromSnapshot({ featureId: 'sharing.session', settings, snapshot })?.state)
+                .toBe('enabled');
+        });
+    });
+
 	    it('ignores non-public build policy env vars in UI bundles', async () => {
 	        vi.resetModules();
 

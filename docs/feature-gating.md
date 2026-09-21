@@ -59,6 +59,12 @@ For features intended to be user-opt-in via UI Experimental Features toggles:
 - Prefer build-policy denies for builds where a feature must be removed or hard-disabled.
 - Security/compliance-sensitive features may default fail-closed on the server; document and test that exception.
 
+The yesyoukenspace fork's development UI adds a default build-policy deny for `sharing.public`.
+`EXPO_PUBLIC_HAPPIER_FEATURE_SHARING_PUBLIC__ENABLED=true` opts the trusted client bundle in;
+server feature bits and Account settings cannot remove that local deny. Explicit build-policy
+denies still win. See [client public sharing](yesyoukenspace/public-sharing.md)
+for enforcement boundaries and the existing protocol's security limits.
+
 ## Server rules
 
 - `/v1/features` assembly is centralized in `resolveServerFeaturePayload.ts`.
