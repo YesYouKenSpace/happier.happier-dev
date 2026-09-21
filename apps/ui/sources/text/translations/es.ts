@@ -3692,6 +3692,17 @@ export const es: TranslationStructure = {
         errorSubtitle: 'No se pudo leer el permiso de notificaciones de macOS',
       },
     },
+    web: {
+      title: 'Notificaciones del navegador',
+      footer: 'Las notificaciones solo aparecen mientras esta pestaña del navegador esté abierta.',
+      permission: {
+        title: 'Permiso de notificaciones del navegador',
+        grantedSubtitle: 'Activado: este navegador mostrará notificaciones.',
+        deniedSubtitle: 'Bloqueado. Permite las notificaciones para este sitio en la configuración del navegador.',
+        defaultSubtitle: 'Toca para permitir notificaciones en este navegador.',
+        requestingSubtitle: 'Solicitando…',
+      },
+    },
     push: {
       title: "Notificaciones push",
       footer:

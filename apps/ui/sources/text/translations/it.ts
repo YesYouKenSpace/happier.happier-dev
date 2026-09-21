@@ -4038,6 +4038,17 @@ export const it: TranslationStructure = {
         errorSubtitle: "Impossibile leggere il permesso notifiche di macOS",
       },
     },
+    web: {
+      title: "Notifiche del browser",
+      footer: "Le notifiche vengono mostrate solo mentre questa scheda del browser è aperta.",
+      permission: {
+        title: "Permesso di notifica del browser",
+        grantedSubtitle: "Abilitato: questo browser mostrerà le notifiche.",
+        deniedSubtitle: "Bloccato. Consenti le notifiche per questo sito nelle impostazioni del browser.",
+        defaultSubtitle: "Tocca per consentire le notifiche in questo browser.",
+        requestingSubtitle: "Richiesta in corso…",
+      },
+    },
     push: {
       title: "Notifiche push",
       footer:

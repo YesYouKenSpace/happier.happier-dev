@@ -3592,6 +3592,17 @@ export const zhHans: TranslationStructure = {
         errorSubtitle: "无法读取 macOS 通知权限",
       },
     },
+    web: {
+      title: "浏览器通知",
+      footer: "仅当此浏览器标签页处于打开状态时才会显示通知。",
+      permission: {
+        title: "浏览器通知权限",
+        grantedSubtitle: "已启用 — 此浏览器将显示通知。",
+        deniedSubtitle: "已阻止。请在浏览器设置中允许此网站的通知。",
+        defaultSubtitle: "点按以允许此浏览器显示通知。",
+        requestingSubtitle: "正在请求…",
+      },
+    },
     push: {
       title: "推送通知",
       footer:

@@ -40,6 +40,8 @@ let sessionsByIdValue: Record<string, unknown> = {
 
 const sendExpoLocalNotification = vi.hoisted(() => vi.fn(async () => 'notif-1'));
 const sendTauriLocalNotification = vi.hoisted(() => vi.fn(async () => true));
+const sendWebLocalNotification = vi.hoisted(() => vi.fn(async () => true));
+let isWebWindowActivelyViewedValue = false;
 
 installActivityNotificationRuntimeCommonModuleMocks({
     reactNative: async () => {
@@ -93,6 +95,14 @@ vi.mock('../channels/sendTauriLocalNotification', () => ({
     sendTauriLocalNotification,
 }));
 
+vi.mock('../channels/sendWebLocalNotification', () => ({
+    sendWebLocalNotification,
+}));
+
+vi.mock('@/utils/platform/isWebWindowActivelyViewed', () => ({
+    isWebWindowActivelyViewed: () => isWebWindowActivelyViewedValue,
+}));
+
 describe('ActivityLocalNotificationRuntime', () => {
     afterEach(async () => {
         reactNativeRuntime.platformOs = 'ios';
@@ -117,6 +127,8 @@ describe('ActivityLocalNotificationRuntime', () => {
         };
         sendExpoLocalNotification.mockClear();
         sendTauriLocalNotification.mockClear();
+        sendWebLocalNotification.mockClear();
+        isWebWindowActivelyViewedValue = false;
 
         const { resetActivityLocalNotificationRuntimeForTests } = await import('./activityLocalNotificationBus');
         resetActivityLocalNotificationRuntimeForTests();
@@ -271,6 +283,93 @@ describe('ActivityLocalNotificationRuntime', () => {
             title: 'Ready session',
             body: 'Command: pwd',
         }));
+
+        await act(async () => {
+            tree?.unmount();
+        });
+    });
+
+    it('sends ready events to the web local notification channel when enabled', async () => {
+        reactNativeRuntime.platformOs = 'web';
+
+        const { ActivityLocalNotificationRuntime } = await import('./ActivityLocalNotificationRuntime');
+        const { notifyActivityReady } = await import('./activityLocalNotificationBus');
+
+        let tree: renderer.ReactTestRenderer | null = null;
+        tree = (await renderScreen(<ActivityLocalNotificationRuntime />)).tree;
+
+        await act(async () => {
+            notifyActivityReady('session-1', [
+                {
+                    kind: 'agent-text',
+                    id: 'message-1',
+                    createdAt: 1,
+                    text: 'Everything is ready.',
+                } as any,
+            ]);
+        });
+
+        expect(sendWebLocalNotification).toHaveBeenCalledWith(expect.objectContaining({
+            title: 'Ready session',
+            body: 'Everything is ready.',
+        }));
+        expect(sendExpoLocalNotification).not.toHaveBeenCalled();
+        expect(sendTauriLocalNotification).not.toHaveBeenCalled();
+
+        await act(async () => {
+            tree?.unmount();
+        });
+    });
+
+    it('does not send web notifications when local notifications are disabled', async () => {
+        reactNativeRuntime.platformOs = 'web';
+        localSettingsValue = {
+            ...localSettingsValue,
+            localNotificationsEnabled: false,
+        };
+
+        const { ActivityLocalNotificationRuntime } = await import('./ActivityLocalNotificationRuntime');
+        const { notifyActivityReady } = await import('./activityLocalNotificationBus');
+
+        let tree: renderer.ReactTestRenderer | null = null;
+        tree = (await renderScreen(<ActivityLocalNotificationRuntime />)).tree;
+
+        await act(async () => {
+            notifyActivityReady('session-1', []);
+        });
+
+        expect(sendWebLocalNotification).not.toHaveBeenCalled();
+
+        await act(async () => {
+            tree?.unmount();
+        });
+    });
+
+    it.each([
+        [true, false],
+        [false, true],
+    ] as const)('same-session suppression on web follows tab visibility (activelyViewed=%s -> sent=%s)', async (activelyViewed, shouldSend) => {
+        reactNativeRuntime.platformOs = 'web';
+        activeViewingSessionIdValue = 'session-1';
+        isWebWindowActivelyViewedValue = activelyViewed;
+
+        const { ActivityLocalNotificationRuntime } = await import('./ActivityLocalNotificationRuntime');
+        const { notifyActivityReady } = await import('./activityLocalNotificationBus');
+
+        let tree: renderer.ReactTestRenderer | null = null;
+        tree = (await renderScreen(<ActivityLocalNotificationRuntime />)).tree;
+
+        await act(async () => {
+            notifyActivityReady('session-1', []);
+        });
+
+        if (shouldSend) {
+            expect(sendWebLocalNotification).toHaveBeenCalledWith(expect.objectContaining({
+                title: 'Ready session',
+            }));
+        } else {
+            expect(sendWebLocalNotification).not.toHaveBeenCalled();
+        }
 
         await act(async () => {
             tree?.unmount();

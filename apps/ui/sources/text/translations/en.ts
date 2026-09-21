@@ -3419,6 +3419,17 @@ export const en = {
                 errorSubtitle: 'Unable to read macOS notification permission',
             },
         },
+        web: {
+            title: 'Browser notifications',
+            footer: 'Notifications only appear while this browser tab is open.',
+            permission: {
+                title: 'Browser notification permission',
+                grantedSubtitle: 'Enabled — this browser will show notifications.',
+                deniedSubtitle: 'Blocked. Allow notifications for this site in your browser settings.',
+                defaultSubtitle: 'Tap to allow notifications in this browser.',
+                requestingSubtitle: 'Requesting…',
+            },
+        },
         push: {
             title: 'Push notifications',
             footer: 'These notifications are sent from your CLI via Expo when your session needs attention.',

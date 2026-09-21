@@ -25,6 +25,11 @@ const isTauriDesktopState = vi.hoisted(() => ({ value: false }));
 const tauriIsPermissionGrantedMock = vi.hoisted(() => vi.fn(async () => true));
 const tauriRequestPermissionMock = vi.hoisted(() => vi.fn(async () => 'granted'));
 const useFeatureEnabledSpy = vi.hoisted(() => vi.fn((_featureId: string) => true));
+const webNotificationSupportedState = vi.hoisted(() => ({ value: false }));
+const webNotificationPermissionState = vi.hoisted(() => ({
+    value: 'default' as 'default' | 'granted' | 'denied' | 'unsupported',
+}));
+const webRequestNotificationPermissionMock = vi.hoisted(() => vi.fn(async () => 'granted' as const));
 
 function createNotificationTopics(overrides: Partial<NotificationChannelTopicsV1> = {}): NotificationChannelTopicsV1 {
     return {
@@ -161,6 +166,12 @@ vi.mock('@/activity/notifications/channels/tauriNotificationPlugin', () => ({
     requestPermission: tauriRequestPermissionMock,
 }));
 
+vi.mock('@/activity/notifications/channels/webNotificationApi', () => ({
+    isWebNotificationSupported: () => webNotificationSupportedState.value,
+    getWebNotificationPermission: () => webNotificationPermissionState.value,
+    requestWebNotificationPermission: webRequestNotificationPermissionMock,
+}));
+
 vi.mock('@/components/ui/lists/ItemList', () => ({
     ItemList: createPassthroughComponentMock('ItemList'),
 }));
@@ -196,6 +207,10 @@ describe('NotificationsSettingsView', () => {
         useFeatureEnabledSpy.mockReset();
         useFeatureEnabledSpy.mockReturnValue(true);
         isTauriDesktopState.value = false;
+        webNotificationSupportedState.value = false;
+        webNotificationPermissionState.value = 'default';
+        webRequestNotificationPermissionMock.mockReset();
+        webRequestNotificationPermissionMock.mockResolvedValue('granted');
 
         settingsState.notificationsSettingsV1 = createNotificationsSettings();
         settingsState.notificationChannelsV1 = [
@@ -349,6 +364,63 @@ describe('NotificationsSettingsView', () => {
         });
 
         expect(tauriRequestPermissionMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('hides browser notification diagnostics when the seam reports unsupported', async () => {
+        const { NotificationsSettingsView } = await import('./NotificationsSettingsView');
+
+        const screen = await renderSettingsView(<NotificationsSettingsView />);
+
+        expect(screen.findGroup('settingsNotifications.web.title')).toBeNull();
+        expect(screen.findRow('settings-notifications-web-permission')).toBeNull();
+    });
+
+    it('hides browser notification diagnostics inside the Tauri desktop app even when the seam reports supported', async () => {
+        isTauriDesktopState.value = true;
+        webNotificationSupportedState.value = true;
+        const { NotificationsSettingsView } = await import('./NotificationsSettingsView');
+
+        const screen = await renderSettingsView(<NotificationsSettingsView />);
+
+        expect(screen.findGroup('settingsNotifications.web.title')).toBeNull();
+        expect(screen.findRow('settings-notifications-web-permission')).toBeNull();
+    });
+
+    it('shows browser notification diagnostics on web when the seam reports supported', async () => {
+        webNotificationSupportedState.value = true;
+        webNotificationPermissionState.value = 'denied';
+        const { NotificationsSettingsView } = await import('./NotificationsSettingsView');
+
+        const screen = await renderSettingsView(<NotificationsSettingsView />);
+
+        expect(screen.findGroup('settingsNotifications.web.title')).toBeTruthy();
+        expect(screen.findRow('settings-notifications-web-permission')).toBeTruthy();
+    });
+
+    it('requests browser notification permission from the browser diagnostics row', async () => {
+        webNotificationSupportedState.value = true;
+        webNotificationPermissionState.value = 'default';
+        const { NotificationsSettingsView } = await import('./NotificationsSettingsView');
+
+        const screen = await renderSettingsView(<NotificationsSettingsView />);
+
+        await act(async () => {
+            screen.pressRow('settings-notifications-web-permission');
+        });
+
+        expect(webRequestNotificationPermissionMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not press the browser diagnostics row once permission is already granted', async () => {
+        webNotificationSupportedState.value = true;
+        webNotificationPermissionState.value = 'granted';
+        const { NotificationsSettingsView } = await import('./NotificationsSettingsView');
+
+        const screen = await renderSettingsView(<NotificationsSettingsView />);
+        const row = requireRow(screen, 'settings-notifications-web-permission');
+
+        expect(row.props.onPress).toBeUndefined();
+        expect(webRequestNotificationPermissionMock).not.toHaveBeenCalled();
     });
 
     it('writes device-local badge settings through the local settings writer', async () => {

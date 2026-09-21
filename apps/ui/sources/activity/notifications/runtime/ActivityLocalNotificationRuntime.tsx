@@ -7,11 +7,13 @@ import { getActiveViewingSessionId } from '@/sync/domains/session/activeViewingS
 import { getActiveServerUrl } from '@/sync/domains/server/serverProfiles';
 import { isTauriMainWindowActivelyViewed } from '@/desktop/window/isTauriMainWindowActivelyViewed';
 import { isTauriDesktop } from '@/utils/platform/tauri';
+import { isWebWindowActivelyViewed } from '@/utils/platform/isWebWindowActivelyViewed';
 import { fireAndForget } from '@/utils/system/fireAndForget';
 
 import { buildActivityLocalNotificationContent } from '../buildActivityLocalNotificationContent';
 import { sendExpoLocalNotification } from '../channels/sendExpoLocalNotification';
 import { sendTauriLocalNotification } from '../channels/sendTauriLocalNotification';
+import { sendWebLocalNotification } from '../channels/sendWebLocalNotification';
 import { subscribeActivityLocalNotifications, type ActivityLocalNotificationEvent } from './activityLocalNotificationBus';
 
 type ActivityLocalNotificationSettings = Readonly<{
@@ -75,11 +77,16 @@ function shouldSuppressSameSessionNotification(event: ActivityLocalNotificationE
         return false;
     }
 
-    if (!isTauriDesktop()) {
-        return true;
+    // Tauri desktop also reports Platform.OS === 'web', so it must be checked first.
+    if (isTauriDesktop()) {
+        return isTauriMainWindowActivelyViewed();
     }
 
-    return isTauriMainWindowActivelyViewed();
+    if (Platform.OS === 'web') {
+        return isWebWindowActivelyViewed();
+    }
+
+    return true;
 }
 
 export function ActivityLocalNotificationRuntime(): React.ReactElement | null {
@@ -104,6 +111,7 @@ export function ActivityLocalNotificationRuntime(): React.ReactElement | null {
                 includeRequestMessageText: localSettings.localNotificationsShowRequestMessageText !== false,
             });
 
+            // Tauri desktop also reports Platform.OS === 'web', so it must be checked first.
             if (isTauriDesktop()) {
                 fireAndForget(sendTauriLocalNotification({
                     title: notification.title,
@@ -112,7 +120,13 @@ export function ActivityLocalNotificationRuntime(): React.ReactElement | null {
                 return;
             }
 
-            if (Platform.OS === 'web') return;
+            if (Platform.OS === 'web') {
+                fireAndForget(sendWebLocalNotification({
+                    title: notification.title,
+                    body: notification.body,
+                }), { tag: 'ActivityLocalNotificationRuntime.sendWebLocalNotification' });
+                return;
+            }
 
             fireAndForget(sendExpoLocalNotification({
                 title: notification.title,

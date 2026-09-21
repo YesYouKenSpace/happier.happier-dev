@@ -3418,6 +3418,17 @@ export const fr: TranslationStructure = {
                 errorSubtitle: 'Impossible de lire la permission de notification macOS',
             },
         },
+        web: {
+            title: 'Notifications du navigateur',
+            footer: 'Les notifications n’apparaissent que lorsque cet onglet du navigateur est ouvert.',
+            permission: {
+                title: 'Permission de notification du navigateur',
+                grantedSubtitle: 'Activé — ce navigateur affichera les notifications.',
+                deniedSubtitle: 'Bloqué. Autorise les notifications pour ce site dans les paramètres du navigateur.',
+                defaultSubtitle: 'Touche pour autoriser les notifications dans ce navigateur.',
+                requestingSubtitle: 'Demande en cours…',
+            },
+        },
         push: {
             title: 'Notifications push',
             footer: 'Ces notifications sont envoyées depuis ton CLI via Expo quand ta session demande ton attention.',

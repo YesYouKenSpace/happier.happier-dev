@@ -3504,6 +3504,17 @@ export const ca: TranslationStructure = {
                 errorSubtitle: 'No s’ha pogut llegir el permís de notificacions de macOS',
             },
         },
+        web: {
+            title: 'Notificacions del navegador',
+            footer: 'Les notificacions només apareixen mentre aquesta pestanya del navegador estigui oberta.',
+            permission: {
+                title: 'Permís de notificacions del navegador',
+                grantedSubtitle: 'Activat: aquest navegador mostrarà notificacions.',
+                deniedSubtitle: 'Bloquejat. Permet les notificacions per a aquest lloc a la configuració del navegador.',
+                defaultSubtitle: 'Toca per permetre notificacions en aquest navegador.',
+                requestingSubtitle: 'Sol·licitant…',
+            },
+        },
         push: {
             title: 'Notificacions push',
             footer: 'Aquestes notificacions s’envien des del teu CLI via Expo quan la teva sessió necessita atenció.',

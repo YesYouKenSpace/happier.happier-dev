@@ -3723,6 +3723,17 @@ export const pl: TranslationStructure = {
         errorSubtitle: 'Nie można odczytać uprawnienia powiadomień macOS',
       },
     },
+    web: {
+      title: 'Powiadomienia przeglądarki',
+      footer: 'Powiadomienia pojawiają się tylko wtedy, gdy ta karta przeglądarki jest otwarta.',
+      permission: {
+        title: 'Uprawnienie powiadomień przeglądarki',
+        grantedSubtitle: 'Włączone — ta przeglądarka będzie wyświetlać powiadomienia.',
+        deniedSubtitle: 'Zablokowane. Zezwól na powiadomienia dla tej witryny w ustawieniach przeglądarki.',
+        defaultSubtitle: 'Stuknij, aby zezwolić na powiadomienia w tej przeglądarce.',
+        requestingSubtitle: 'Wysyłanie prośby…',
+      },
+    },
     push: {
       title: "Powiadomienia push",
       footer:
