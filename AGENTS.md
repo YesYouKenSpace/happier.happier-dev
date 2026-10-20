@@ -2,6 +2,12 @@
 
 This file is the canonical cross-tool constitution for this repository.
 
+## Fork policy
+
+Before working in this fork, explicitly read [the yesyoukenspace fork policy](docs/yesyoukenspace/README.md) with your file-reading tool unless it is already in active context. A link is not an automatic include. If the document cannot be read, stop and ask. Its explicit fork-specific policies take precedence over conflicting upstream repository or package guidance; all other instructions remain in force. Ask about any unresolved conflict rather than silently choosing a policy.
+
+Implementation and upstream-integration tasks must satisfy the fork's [documentation completion requirements](docs/yesyoukenspace/README.md#documentation-completion) before being reported complete. Documentation is part of the same change, not a deferred follow-up.
+
 ## What Happier is
 
 Happier is a cross-device client and companion for coding agents. Think of it as what you would get if Claude Desktop, Codex App, Cursor Glass and Conductor were merged into one open-source app.

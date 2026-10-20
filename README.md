@@ -1,3 +1,5 @@
+> This is the yesyoukenspace fork of Happier, focused on treating the relay as potentially malicious. See [fork policy and documentation](docs/yesyoukenspace/README.md) for scope, maintenance, and security limitations.
+
 <div align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset=".github/logotype-white.svg" />

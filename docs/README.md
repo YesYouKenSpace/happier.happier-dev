@@ -3,6 +3,7 @@
 This folder documents how Happier works internally, with a focus on protocol, backend architecture, deployment, and the CLI tool. Published user, operator, self-hoster, and public contributor documentation lives in `apps/docs/content/docs/**`. Start here for internal technical documentation.
 
 ## Index
+- [yesyoukenspace/README.md](yesyoukenspace/README.md): Fork policy, malicious-relay threat model, maintenance, and fork-specific feature/fix documentation.
 - protocol.md: Wire protocol (WebSocket), payload formats, sequencing, and concurrency rules.
 - api.md: HTTP endpoints and authentication flows.
 - encryption.md: Encryption boundaries, on-wire encoding, and session storage modes.
