@@ -1,7 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { randomBytes } from 'node:crypto';
+import {
+    buildSessionKeyBindingMetadataField,
+    sealOwnerSessionDataKeyEnvelope,
+} from '@happier-dev/protocol';
+import { encodeBase64, encrypt } from '@/api/encryption';
+import { configuration } from '@/configuration';
 
 describe('sendSessionMessage', () => {
+    // These flows exercise transport behavior, not encryption policy. Tests re-import
+    // modules per case, so the requirement must be pinned via the environment (not the
+    // configuration singleton) to stay deterministic under the fork's require_e2ee default.
+    const previousRequirement = configuration.clientEncryptionRequirement;
     beforeEach(() => {
+        Object.assign(configuration, { clientEncryptionRequirement: 'follow_account' });
+        vi.stubEnv('HAPPIER_ENCRYPTION_REQUIREMENT', 'follow_account');
         vi.doMock('@/api/session/pendingQueueV2Transport', async (importOriginal) => ({
             ...await importOriginal<typeof import('@/api/session/pendingQueueV2Transport')>(),
             enqueuePendingQueueV2MessageViaHttp: vi.fn(async () => undefined),
@@ -9,6 +22,8 @@ describe('sendSessionMessage', () => {
     });
 
     afterEach(() => {
+        Object.assign(configuration, { clientEncryptionRequirement: previousRequirement });
+        vi.unstubAllEnvs();
         vi.doUnmock('@/api/session/pendingQueueV2Transport');
         vi.resetModules();
         vi.clearAllMocks();
@@ -100,6 +115,7 @@ describe('sendSessionMessage', () => {
                 rawSession: {
                     id: 'sess-1',
                     active: true,
+                    encryptionMode: 'plain',
                     metadata: '{}',
                     agentState: null,
                     latestTurnStatus: 'completed',
@@ -305,9 +321,10 @@ describe('sendSessionMessage', () => {
                 rawSession: {
                     id: 'sess-1',
                     active: true,
+                    encryptionMode: 'plain',
                     metadata: '{}',
                     agentState: null,
-                    latestTurnStatus: 'in_progress',
+                    latestTurnStatus: 'completed',
                     pendingPermissionRequestCount: 0,
                     pendingUserActionRequestCount: 0,
                 },
@@ -393,6 +410,7 @@ describe('sendSessionMessage', () => {
                 ctx: { encryptionKey: new Uint8Array(32).fill(1), encryptionVariant: 'dataKey' },
                 rawSession: {
                     id: 'sess-1',
+                    encryptionMode: 'plain',
                     active: true,
                     metadata: '{}',
                     agentState: null,
@@ -479,6 +497,7 @@ describe('sendSessionMessage', () => {
                 ctx: { encryptionKey: new Uint8Array(32).fill(1), encryptionVariant: 'dataKey' },
                 rawSession: {
                     id: 'sess-1',
+                    encryptionMode: 'plain',
                     active: true,
                     metadata: '{}',
                     agentState: null,
@@ -562,6 +581,7 @@ describe('sendSessionMessage', () => {
                 ctx: { encryptionKey: new Uint8Array(32).fill(1), encryptionVariant: 'dataKey' },
                 rawSession: {
                     id: 'sess-1',
+                    encryptionMode: 'plain',
                     active: true,
                     metadata: '{}',
                     agentState: null,
@@ -652,6 +672,7 @@ describe('sendSessionMessage', () => {
                 ctx: { encryptionKey: new Uint8Array(32).fill(1), encryptionVariant: 'dataKey' },
                 rawSession: {
                     id: 'sess-1',
+                    encryptionMode: 'plain',
                     active: true,
                     metadata: '{}',
                     agentState: null,
@@ -916,6 +937,7 @@ describe('sendSessionMessage', () => {
                 ctx: { encryptionKey: new Uint8Array(32).fill(1), encryptionVariant: 'dataKey' },
                 rawSession: {
                     id: 'sess-1',
+                    encryptionMode: 'plain',
                     active: true,
                     metadata: '{}',
                     agentState: null,
@@ -977,6 +999,7 @@ describe('sendSessionMessage', () => {
                 ctx: { encryptionKey: new Uint8Array(32).fill(1), encryptionVariant: 'dataKey' },
                 rawSession: {
                     id: 'sess-1',
+                    encryptionMode: 'plain',
                     active: true,
                     metadata: '{}',
                     agentState: null,
@@ -1037,15 +1060,28 @@ describe('sendSessionMessage', () => {
                 sessionId: 'sess-1',
                 mode: 'e2ee',
                 ctx: { encryptionKey: new Uint8Array(32).fill(1), encryptionVariant: 'dataKey' },
-                rawSession: {
-                    id: 'sess-1',
-                    active: true,
-                    metadata: '{}',
-                    agentState: null,
-                    latestTurnStatus: 'completed',
-                    pendingPermissionRequestCount: 0,
-                    pendingUserActionRequestCount: 0,
-                },
+                rawSession: (() => {
+                    const rowKey = new Uint8Array(32).fill(9);
+                    const machineKey = new Uint8Array(32).fill(1);
+                    return {
+                        id: 'sess-1',
+                        active: true,
+                        encryptionMode: 'e2ee',
+                        metadata: encodeBase64(encrypt(rowKey, 'dataKey', {
+                            ...buildSessionKeyBindingMetadataField({ sessionId: 'sess-1', sessionTag: 'sess-1-tag' }),
+                        })),
+                        dataEncryptionKey: encodeBase64(sealOwnerSessionDataKeyEnvelope({
+                            material: { type: 'dataKey', machineKey },
+                            sessionTag: 'sess-1-tag',
+                            dataKey: rowKey,
+                            randomBytes,
+                        })),
+                        agentState: null,
+                        latestTurnStatus: 'completed',
+                        pendingPermissionRequestCount: 0,
+                        pendingUserActionRequestCount: 0,
+                    };
+                })(),
             })),
         }));
 
@@ -1373,6 +1409,7 @@ describe('sendSessionMessage', () => {
                 rawSession: {
                     id: 'sess-1',
                     active: true,
+                    encryptionMode: 'plain',
                     metadata: '{}',
                     agentState: null,
                     latestTurnStatus: 'completed',

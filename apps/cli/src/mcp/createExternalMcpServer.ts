@@ -10,7 +10,6 @@ import { createStartExecutionRunToolHandler } from '@/agent/tools/happierTools/c
 import { isActionEnabledByEnv, readActionsSettingsFromEnv } from '@/settings/actionsSettings';
 import { registerHappierMcpBuiltInTools } from '@/mcp/server/registerHappierMcpBuiltInTools';
 import { createCliActionExecutorHarness } from '@/session/actions/createCliActionExecutorHarness';
-import { resolveSessionEncryptionContextFromCredentials } from '@/session/transport/encryption/sessionEncryptionContext';
 
 function normalizeId(raw: unknown): string {
   return String(raw ?? '').trim();
@@ -28,7 +27,6 @@ export function createExternalMcpServer(params: Readonly<{
 }>): Readonly<{ mcp: McpServer; toolNames: string[] }> {
   const toolSurface = 'mcp' as const;
 
-  const ctx = resolveSessionEncryptionContextFromCredentials(params.credentials);
   let defaultSessionId: string | null = normalizeId(params.defaultSessionId) || null;
 
   const { executor } = createCliActionExecutorHarness(
@@ -36,7 +34,6 @@ export function createExternalMcpServer(params: Readonly<{
       token: params.credentials.token,
       credentials: params.credentials,
       sessionId: 'cli-global',
-      ctx,
     },
     {
       sessionTargetPrimarySet: async ({ sessionId }) => {

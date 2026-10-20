@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { randomBytes } from 'node:crypto';
 
 import { RPC_METHODS } from '@happier-dev/protocol/rpc';
+import { buildSessionKeyBindingMetadataField, sealOwnerSessionDataKeyEnvelope } from '@happier-dev/protocol';
 
 import type { Credentials } from '@/persistence';
+import { encodeBase64, encrypt } from '@/api/encryption';
 import { createSessionRecordFixture } from '@/testkit/backends/sessionFixtures';
 
 const readCredentialsMock = vi.fn<() => Promise<Credentials | null>>();
@@ -38,12 +41,30 @@ describe('rpcHandlers.memory (window retrieval)', () => {
   });
 
   it('passes the configured content policy into citation windows', async () => {
+    const secret = new Uint8Array(32).fill(7);
+    const dataKey = new Uint8Array(32).fill(9);
     readCredentialsMock.mockResolvedValue({
       token: 'token-memory-window',
-      encryption: { type: 'legacy', secret: new Uint8Array(32).fill(7) },
+      encryption: { type: 'legacy', secret },
     });
     fetchSessionByIdMock.mockResolvedValue(
-      createSessionRecordFixture({ id: 'sess-memory-window', active: true, activeAt: 1, metadata: '{}' }),
+      createSessionRecordFixture({
+        id: 'sess-memory-window',
+        active: true,
+        activeAt: 1,
+        encryptionMode: 'e2ee',
+        metadata: encodeBase64(encrypt(dataKey, 'dataKey', {
+          path: '/repo',
+          ...buildSessionKeyBindingMetadataField({ sessionId: 'sess-memory-window', sessionTag: 'memory-tag' }),
+        })),
+        metadataVersion: 1,
+        dataEncryptionKey: encodeBase64(sealOwnerSessionDataKeyEnvelope({
+          material: { type: 'legacy', secret },
+          sessionTag: 'memory-tag',
+          dataKey,
+          randomBytes,
+        })),
+      }),
     );
     fetchEncryptedTranscriptMessagesPageMock.mockResolvedValue({
       hasMore: false,

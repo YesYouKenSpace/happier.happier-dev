@@ -1,17 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createServer, type Server } from 'node:http';
 
-import { deriveBoxPublicKeyFromSeed, sealEncryptedDataKeyEnvelopeV1 } from '@happier-dev/protocol';
+import {
+  buildSessionKeyBindingMetadataField,
+  deriveBoxPublicKeyFromSeed,
+  sealOwnerSessionDataKeyEnvelope,
+} from '@happier-dev/protocol';
 import { createEnvKeyScope } from '@/testkit/env/envScope';
 import { createTempDir, removeTempDir } from '@/testkit/fs/tempDir';
 
 describe('hydrateReplayDialogFromTranscript (integration)', () => {
   let server: Server | null = null;
   let happyHomeDir = '';
-  let envScope = createEnvKeyScope(['HAPPIER_SERVER_URL', 'HAPPIER_WEBAPP_URL', 'HAPPIER_HOME_DIR']);
+  let envScope = createEnvKeyScope(['HAPPIER_SERVER_URL', 'HAPPIER_WEBAPP_URL', 'HAPPIER_HOME_DIR', 'HAPPIER_ENCRYPTION_REQUIREMENT']);
 
   beforeEach(async () => {
-    envScope = createEnvKeyScope(['HAPPIER_SERVER_URL', 'HAPPIER_WEBAPP_URL', 'HAPPIER_HOME_DIR']);
+    envScope = createEnvKeyScope(['HAPPIER_SERVER_URL', 'HAPPIER_WEBAPP_URL', 'HAPPIER_HOME_DIR', 'HAPPIER_ENCRYPTION_REQUIREMENT']);
+    envScope.patch({ HAPPIER_ENCRYPTION_REQUIREMENT: 'follow_account' });
     happyHomeDir = await createTempDir('happier-cli-replay-hydrate-');
   });
 
@@ -113,18 +118,27 @@ describe('hydrateReplayDialogFromTranscript (integration)', () => {
 
   it('hydrates encrypted sessions using the published session dataEncryptionKey', async () => {
     const sessionId = 'sess_enc_1';
+    const sessionTag = 'replay-tag';
 
     const dek = new Uint8Array(32).fill(3);
-    const machineKeySeed = new Uint8Array(32).fill(8);
-    const recipientPublicKey = deriveBoxPublicKeyFromSeed(machineKeySeed);
-    const envelope = sealEncryptedDataKeyEnvelopeV1({
+    const machineKey = new Uint8Array(32).fill(8);
+    const envelope = sealOwnerSessionDataKeyEnvelope({
+      material: { type: 'dataKey', machineKey },
+      sessionTag,
       dataKey: dek,
-      recipientPublicKey,
       randomBytes: (length) => new Uint8Array(length).fill(5),
     });
 
     const { encodeBase64, encryptWithDataKey } = await import('@/api/encryption');
     const dataEncryptionKeyBase64 = encodeBase64(envelope, 'base64');
+    const metadataCiphertext = encodeBase64(
+      encryptWithDataKey({
+        flavor: 'claude',
+        path: '/tmp',
+        ...buildSessionKeyBindingMetadataField({ sessionId, sessionTag }),
+      }, dek),
+      'base64',
+    );
     const msgCiphertext = encodeBase64(
       encryptWithDataKey({ role: 'user', content: { type: 'text', text: 'hello' } }, dek),
       'base64',
@@ -138,7 +152,7 @@ describe('hydrateReplayDialogFromTranscript (integration)', () => {
       active: false,
       activeAt: 0,
       archivedAt: null,
-      metadata: 'b64',
+      metadata: metadataCiphertext,
       metadataVersion: 0,
       agentState: null,
       agentStateVersion: 0,
@@ -201,8 +215,8 @@ describe('hydrateReplayDialogFromTranscript (integration)', () => {
         token: 't',
         encryption: {
           type: 'dataKey',
-          publicKey: deriveBoxPublicKeyFromSeed(machineKeySeed),
-          machineKey: machineKeySeed,
+          publicKey: deriveBoxPublicKeyFromSeed(machineKey),
+          machineKey,
         },
       },
       previousSessionId: sessionId,

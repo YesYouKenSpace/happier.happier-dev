@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { configuration } from '@/configuration';
 import { SESSION_USAGE_LIMIT_RECOVERY_METADATA_KEY } from '@happier-dev/protocol';
 
 import { createSessionListResponseFixture, createSessionRecordFixture } from '@/testkit/backends/sessionFixtures';
@@ -14,6 +15,14 @@ const credentials = {
 } as const;
 
 describe('hydrateInactiveUsageLimitRecoveryFromSessionMetadata', () => {
+  // Recovery mechanics, not encryption policy; run permissive under the fork default.
+  const previousRequirement = configuration.clientEncryptionRequirement;
+  beforeEach(() => {
+    Object.assign(configuration, { clientEncryptionRequirement: 'follow_account' });
+  });
+  afterEach(() => {
+    Object.assign(configuration, { clientEncryptionRequirement: previousRequirement });
+  });
   it('observes inactive persisted recovery intents and rebuilds check-now runners without scheduling', async () => {
     const recovery = {
       v: 1 as const,

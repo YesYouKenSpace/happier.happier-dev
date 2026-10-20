@@ -90,11 +90,11 @@ function buildStoredMessageContent(params: Readonly<{
   raw: Record<string, unknown>;
 }>): SessionStoredMessageContent {
   const mode = resolveSessionStoredContentEncryptionMode(params.rawSession);
+  const ctx = resolveSessionEncryptionContextFromCredentials(params.credentials, params.rawSession);
   if (mode === 'plain') {
     return { t: 'plain', v: params.raw };
   }
 
-  const ctx = resolveSessionEncryptionContextFromCredentials(params.credentials, params.rawSession);
   return {
     t: 'encrypted',
     c: encryptStoredSessionPayload({

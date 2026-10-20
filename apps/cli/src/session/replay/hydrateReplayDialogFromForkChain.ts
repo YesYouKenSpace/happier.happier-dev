@@ -1,6 +1,7 @@
 import type { Credentials } from '@/persistence';
 
 import { measureHappierReplayDialogLineChars } from '@happier-dev/agents';
+import { SessionKeyAuthenticationError } from '@happier-dev/protocol';
 
 import { isAuthenticationError } from '@/api/client/httpStatusError';
 import { findTranscriptEncryptedMessageByLocalId } from '@/api/session/transcriptMessageLookup';
@@ -324,7 +325,7 @@ export async function hydrateReplayDialogFromForkChain(params: Readonly<{
     visited.add(currentSessionId);
 
     const rawSession = await fetchSessionByIdCompat({ token: params.credentials.token, sessionId: currentSessionId }).catch((error) => {
-      if (isAuthenticationError(error)) throw error;
+      if (isAuthenticationError(error) || error instanceof SessionKeyAuthenticationError) throw error;
       return null;
     });
     if (!rawSession) break;
@@ -372,17 +373,10 @@ export async function hydrateReplayDialogFromForkChain(params: Readonly<{
   let unreadableRowCount = 0;
   const wantSynopsisText = params.wantSynopsisText === true;
 
-  /**
-   * WHICH key opens a Session is not this reader's decision. The canonical
-   * session-crypto owner already answers it for every credential shape the
-   * daemon can hold — the Account secret for a legacy home, the Session's
-   * sealed DEK (or the machine key for a pre-DEK Session) for a data-key home
-   * — and every other reader of a Session's stored content goes through it.
-   */
-  const openSegment = (segment: { rawSession: any }): SessionEncryptionContext | null =>
-    (segment.rawSession as any)?.encryptionMode === 'plain'
-      ? null
-      : resolveSessionEncryptionContextFromCredentials(params.credentials, segment.rawSession);
+  const openSegment = (segment: { rawSession: Parameters<typeof resolveSessionEncryptionContextFromCredentials>[1] }): SessionEncryptionContext | null => {
+    const ctx = resolveSessionEncryptionContextFromCredentials(params.credentials, segment.rawSession);
+    return segment.rawSession.encryptionMode === 'plain' ? null : ctx;
+  };
 
   const startingSegment = segments[0]!;
   const startingSessionSeq =

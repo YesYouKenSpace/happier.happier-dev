@@ -1,4 +1,5 @@
 import type { SocketRpcAuthorizationContext } from '@happier-dev/protocol/rpc';
+import type { EncryptionScopeInput } from '@/sync/encryption/encryption';
 
 export type SocketRpcResult<T = string> =
     | { ok: true; result: T }
@@ -43,8 +44,10 @@ export type ScopedRpcEncryptionContext = Readonly<{
 }>;
 
 export type ScopedRpcSessionEncryptionContext = Readonly<{
-    decryptEncryptionKey: (value: string) => Promise<Uint8Array | null>;
-    initializeSessions: (keys: Map<string, Uint8Array | null>) => Promise<void>;
+    decryptSessionEncryptionKey: (sessionId: string, value: string) => Promise<Uint8Array | null>;
+    hasSessionEncryptionKey: (sessionId: string, dataKey: Uint8Array, scope?: EncryptionScopeInput) => boolean;
+    removeSessionEncryption: (sessionId: string) => void;
+    initializeSessions: (keys: Map<string, Uint8Array | null>, scope?: EncryptionScopeInput) => Promise<void>;
     getSessionEncryption: (sessionId: string) => ScopedSessionEncryption | null | undefined;
 }>;
 
@@ -56,6 +59,7 @@ export type ScopedMachineEncryption = Readonly<{
 export type ScopedSessionEncryption = Readonly<{
     encryptRaw: (payload: unknown) => Promise<string>;
     decryptRaw: (payload: string) => Promise<unknown>;
+    decryptMetadata: (version: number, encrypted: string) => Promise<unknown>;
 }>;
 
 export type ScopedSocketConnectParams = Readonly<{

@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { Encryption } from '@/sync/encryption/encryption';
+import { saveAccountSettings } from '@/sync/domains/state/accountSettingsPersistence';
+import { settingsDefaults } from '@/sync/domains/settings/settings';
 import { storage } from '@/sync/domains/state/storage';
 import { setActiveServerId, upsertServerProfile } from '@/sync/domains/server/serverProfiles';
 import type { ServerAccountScope } from '@/sync/domains/scope/serverAccountScope';
@@ -323,10 +325,16 @@ function armSession(): ServerAccountScope {
         seq: LOADED_HEAD_SEQ,
     }]);
     storage.getState().applyMessages(SESSION_ID, [committedTwin('ack-boundary-loaded-tail', LOADED_HEAD_SEQ)]);
-    storage.getState().applyMessagesLoaded(SESSION_ID);
     const scope = { serverId: server.id, accountId: 'account' } as const;
     setActiveServerId(server.id, { scope: 'tab' });
     storage.getState().activateProfileScope(scope);
+    // Scoped plaintext issuance requires a resolvable requirement for the target
+    // account's own persisted record; these mechanics tests opt their scope out.
+    saveAccountSettings(scope, {
+        ...settingsDefaults,
+        clientEncryptionRequirementV1: 'follow_account',
+        clientEncryptionRequirementLocalV1: 'follow_account',
+    }, 1);
     return scope;
 }
 

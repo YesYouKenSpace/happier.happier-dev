@@ -1,5 +1,5 @@
 import type { AgentState, Metadata } from '../types';
-import { normalizeSessionMetadataForRead } from '@happier-dev/protocol';
+import { SessionKeyAuthenticationError, normalizeSessionMetadataForRead } from '@happier-dev/protocol';
 import { decodeBase64, decrypt } from '../encryption';
 import { fetchSessionByIdCompat } from '@/session/transport/http/sessionsHttp';
 import { isDeepStrictEqual } from 'node:util';
@@ -52,6 +52,7 @@ export async function fetchSessionSnapshotUpdateFromServer(opts: {
     sessionId: string;
     encryptionKey: Uint8Array;
     encryptionVariant: 'legacy' | 'dataKey';
+    sessionEncryptionMode: 'e2ee' | 'plain';
     currentMetadataVersion: number;
     currentAgentStateVersion: number;
     currentMetadata?: Metadata | null;
@@ -68,8 +69,8 @@ export async function fetchSessionSnapshotUpdateFromServer(opts: {
     const raw = await fetchRawSessionSnapshotOnce({ token: opts.token, sessionId: opts.sessionId, reason: opts.reason });
     if (!raw) return {};
 
-    const sessionEncryptionMode: 'e2ee' | 'plain' =
-        (raw as any)?.encryptionMode === 'plain' ? 'plain' : 'e2ee';
+    const sessionEncryptionMode = raw.encryptionMode === 'plain' ? 'plain' : 'e2ee';
+    if (sessionEncryptionMode !== opts.sessionEncryptionMode) throw new SessionKeyAuthenticationError();
 
     const out: {
         metadata?: { metadata: Metadata; metadataVersion: number };

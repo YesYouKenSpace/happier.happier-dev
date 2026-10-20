@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Encryption } from '@/sync/encryption/encryption';
+import { saveAccountSettings } from '@/sync/domains/state/accountSettingsPersistence';
+import { settingsDefaults } from '@/sync/domains/settings/settings';
 import { settingsParse } from '@/sync/domains/settings/settings';
 import type { Session } from '@/sync/domains/state/storageTypes';
 import { storage } from '@/sync/domains/state/storage';
@@ -101,6 +103,19 @@ describe('pendingQueueV2 optimistic thinking', () => {
     beforeEach(() => {
         vi.useFakeTimers();
         resetPendingQueueState();
+        // Scoped plaintext issuance requires a resolvable requirement for the target
+        // account's own persisted record; these mechanics tests opt their scopes out.
+        for (const scope of [
+            testOutboxScope,
+            { serverId: 'server-a', accountId: 'account-a' },
+            { serverId: 'server-b', accountId: 'account-b' },
+        ] as const) {
+            saveAccountSettings(scope, {
+                ...settingsDefaults,
+                clientEncryptionRequirementV1: 'follow_account',
+                clientEncryptionRequirementLocalV1: 'follow_account',
+            }, 1);
+        }
     });
 
     afterEach(() => {

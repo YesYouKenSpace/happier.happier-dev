@@ -58,6 +58,32 @@ cli.rebuild:
 	$(HAPPIER_BIN) service restart
 	$(HAPPIER_BIN) service status
 
+.PHONY: test-protocol test-cli test-ui test-server test-server-integration typecheck test-all
+
+TEST_FILES ?=
+WORKSPACE ?= @happier-dev/protocol
+
+test-protocol:
+	yarn workspace @happier-dev/protocol test $(TEST_FILES) --maxWorkers=2
+
+test-cli:
+	yarn --cwd apps/cli vitest run --config vitest.config.ts $(TEST_FILES) --maxWorkers=2
+
+test-ui:
+	yarn --cwd apps/ui vitest run --config vitest.config.ts $(TEST_FILES) --maxWorkers=2
+
+test-server:
+	yarn --cwd apps/server test:unit $(TEST_FILES) --maxWorkers=2
+
+test-server-integration:
+	yarn --cwd apps/server test:integration $(TEST_FILES) --maxWorkers=2
+
+typecheck:
+	yarn workspace $(WORKSPACE) typecheck
+
+test-all:
+	yarn test
+
 test-public-sharing:
 	yarn --cwd apps/ui vitest run sources/sync/domains/features sources/hooks/server/useFeature sources/sync/domains/social sources/sync/api/social sources/sync/encryption/publicShareEncryption.test.ts sources/components/sessions/sharing sources/__tests__/app/share "sources/__tests__/routes/(app)/session/[id]/sharing.permission.test.tsx" "sources/__tests__/routes/(app)/session/[id]/sharing.publicFeature.test.tsx"
 	yarn --cwd apps/ui typecheck

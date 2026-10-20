@@ -6,7 +6,6 @@ import type {
 import {
     resolveSessionEncryptionContextFromCredentials,
     resolveSessionStoredContentEncryptionMode,
-    tryDecryptSessionMetadata,
 } from '@/session/transport/encryption/sessionEncryptionContext';
 import { type ResolveSessionIdResult, resolveSessionIdOrPrefix } from '@/session/query/resolveSessionId';
 import { fetchSessionById, type RawSessionRecord } from '@/session/transport/http/sessionsHttp';
@@ -128,6 +127,8 @@ export async function resolveSessionTransportContext(params: Readonly<{
         };
     }
 
+    // Tolerate the create→publish window (missing envelope, undecryptable metadata)
+    // before the strict resolver below decides; strictness itself is unchanged.
     const rawSession = await fetchSessionTransportRecord({
         credentials: params.credentials,
         sessionId: resolved.sessionId,

@@ -79,6 +79,7 @@ import { loadPendingOutboxForSession } from './domains/state/pendingOutboxPersis
 import { settingsDefaults } from './domains/settings/settings';
 import { encodeBase64 } from '@/encryption/base64';
 import { encodeUTF8 } from '@/encryption/text';
+import { Encryption } from '@/sync/encryption/encryption';
 import type { Session } from './domains/state/storageTypes';
 import { buildServerFeaturesResponse } from '@/hooks/server/serverFeaturesTestUtils';
 import { resetServerFeaturesClientForTests } from '@/sync/api/capabilities/serverFeaturesClient';
@@ -89,11 +90,7 @@ const initialStorageState = storage.getState();
 
 type SyncMetadataPatchTestAccess = {
     credentials: { token: string; secret: string } | null;
-    encryption: {
-        decryptEncryptionKey: (encryptedKey: string | null | undefined) => Promise<null>;
-        initializeSessions: () => Promise<void>;
-        getSessionEncryption: (sessionId: string) => null;
-    };
+    encryption: Encryption;
 };
 
 function createSession(sessionId: string): Session {
@@ -600,6 +597,11 @@ describe('sync.fetchMessages server-scoped known-session checks', () => {
             rawRecord: { role: 'user', content: { type: 'text', text: 'old' }, meta: {} },
         });
         const ownerToken = buildTokenWithSub('owner-account');
+        saveAccountSettings({ serverId: ownerServer.id, accountId: 'owner-account' }, {
+            ...settingsDefaults,
+            clientEncryptionRequirementV1: 'follow_account',
+            clientEncryptionRequirementLocalV1: 'follow_account',
+        }, 1);
         getCredentialsForServerUrlMock.mockResolvedValue({ token: ownerToken, secret: 'owner-secret' });
         createEncryptionFromAuthCredentialsMock.mockResolvedValue({});
         runtimeFetchMock.mockResolvedValue(new Response('{}', { status: 200 }));
@@ -794,11 +796,7 @@ describe('sync.fetchMessages server-scoped known-session checks', () => {
         const { sync } = await import('./sync');
         const syncAccess = sync as unknown as SyncMetadataPatchTestAccess;
         syncAccess.credentials = { token: 'active-token', secret: 'active-secret' };
-        syncAccess.encryption = {
-            decryptEncryptionKey: async () => null,
-            initializeSessions: async () => {},
-            getSessionEncryption: () => null,
-        };
+        syncAccess.encryption = await Encryption.create(new Uint8Array(32).fill(7));
 
         await expect(sync.updatePendingRequestedAction(
             sessionId,
@@ -959,6 +957,7 @@ describe('sync.fetchMessages server-scoped known-session checks', () => {
 
         expect(emitSessionMetadataUpdateWithServerScopeMock).toHaveBeenCalledWith({
             sessionId,
+            encryptionMode: 'plain',
             expectedVersion: 2,
             metadata: JSON.stringify({
                 path: '/tmp/repo',
@@ -1006,6 +1005,7 @@ describe('sync.fetchMessages server-scoped known-session checks', () => {
 
         expect(emitSessionMetadataUpdateWithServerScopeMock).toHaveBeenCalledWith({
             sessionId,
+            encryptionMode: 'plain',
             expectedVersion: 2,
             metadata: JSON.stringify({
                 path: '/tmp/repo',
@@ -1057,11 +1057,7 @@ describe('sync.fetchMessages server-scoped known-session checks', () => {
         const { sync } = await import('./sync');
         const syncForMetadataPatch = sync as unknown as SyncMetadataPatchTestAccess;
         syncForMetadataPatch.credentials = { token: 'active-token', secret: 'active-secret' };
-        syncForMetadataPatch.encryption = {
-            decryptEncryptionKey: vi.fn(async () => null),
-            initializeSessions: vi.fn(async () => undefined),
-            getSessionEncryption: vi.fn(() => null),
-        };
+        syncForMetadataPatch.encryption = await Encryption.create(new Uint8Array(32).fill(7));
 
         await expect(
             sync.patchSessionMetadataWithRetry(sessionId, (metadata) => ({
@@ -1078,6 +1074,7 @@ describe('sync.fetchMessages server-scoped known-session checks', () => {
         );
         expect(emitSessionMetadataUpdateWithServerScopeMock).toHaveBeenCalledWith({
             sessionId,
+            encryptionMode: 'plain',
             expectedVersion: 2,
             metadata: JSON.stringify({
                 path: '/tmp/repo',

@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { encodeBase64, encryptLegacy } from '@/api/encryption';
-import { createSessionListResponseFixture, createSessionRecordFixture } from '@/testkit/backends/sessionFixtures';
+import { createEncryptedSessionRecordFixture, createSessionListResponseFixture } from '@/testkit/backends/sessionFixtures';
 
 const { bootstrapAccountSettingsContext, fetchSessionsPage, getSessionTranscript } = vi.hoisted(() => ({
   bootstrapAccountSettingsContext: vi.fn(),
@@ -30,8 +29,11 @@ describe('listSessions', () => {
     },
   } as const;
 
-  function encryptedMetadata(value: Record<string, unknown>): string {
-    return encodeBase64(encryptLegacy(value, credentials.encryption.secret));
+  function encryptedSession(params: Omit<Parameters<typeof createEncryptedSessionRecordFixture>[0], 'credentials'> & {
+    id: string;
+    metadata: Record<string, unknown>;
+  }) {
+    return createEncryptedSessionRecordFixture({ ...params, credentials });
   }
 
   beforeEach(() => {
@@ -42,9 +44,9 @@ describe('listSessions', () => {
 
   it('propagates a non-terminal server page without terminal rows by default', async () => {
     fetchSessionsPage.mockResolvedValue(createSessionListResponseFixture([
-      createSessionRecordFixture({
+      encryptedSession({
         id: 'sess-1',
-        metadata: encryptedMetadata({ summary: { text: 'Session one' } }),
+        metadata: { summary: { text: 'Session one' } },
       }),
     ], { nextCursor: 'cursor-2', hasNext: true }));
 
@@ -94,13 +96,13 @@ describe('listSessions', () => {
 
   it('includes terminal rows with deterministic session cardinality when requested', async () => {
     fetchSessionsPage.mockResolvedValue(createSessionListResponseFixture([
-      createSessionRecordFixture({
+      encryptedSession({
         id: 'sess-1',
-        metadata: encryptedMetadata({ summary: { text: 'Session one' }, path: '/repo/one' }),
+        metadata: { summary: { text: 'Session one' }, path: '/repo/one' },
       }),
-      createSessionRecordFixture({
+      encryptedSession({
         id: 'sess-2',
-        metadata: encryptedMetadata({ summary: { text: 'Session two' }, path: '/repo/two' }),
+        metadata: { summary: { text: 'Session two' }, path: '/repo/two' },
       }),
     ]));
 
@@ -123,21 +125,21 @@ describe('listSessions', () => {
 
   it('caps sessions and rows to the requested limit after server initial-page expansion', async () => {
     fetchSessionsPage.mockResolvedValue(createSessionListResponseFixture([
-      createSessionRecordFixture({
+      encryptedSession({
         id: 'sess-1',
-        metadata: encryptedMetadata({ summary: { text: 'Session one' }, path: '/repo/one' }),
+        metadata: { summary: { text: 'Session one' }, path: '/repo/one' },
       }),
-      createSessionRecordFixture({
+      encryptedSession({
         id: 'sess-2',
-        metadata: encryptedMetadata({ summary: { text: 'Session two' }, path: '/repo/two' }),
+        metadata: { summary: { text: 'Session two' }, path: '/repo/two' },
       }),
-      createSessionRecordFixture({
+      encryptedSession({
         id: 'sess-3',
-        metadata: encryptedMetadata({ summary: { text: 'Session three' }, path: '/repo/three' }),
+        metadata: { summary: { text: 'Session three' }, path: '/repo/three' },
       }),
-      createSessionRecordFixture({
+      encryptedSession({
         id: 'sess-4',
-        metadata: encryptedMetadata({ summary: { text: 'Session four' }, path: '/repo/four' }),
+        metadata: { summary: { text: 'Session four' }, path: '/repo/four' },
       }),
     ], { nextCursor: 'cursor-2', hasNext: true }));
     getSessionTranscript.mockResolvedValue({
@@ -169,7 +171,7 @@ describe('listSessions', () => {
   });
 
   it('keeps fresh resumable page rows ahead of older pinned expansion rows before applying the limit', async () => {
-    const resumableMetadata = (title: string, vendorId: string) => encryptedMetadata({
+    const resumableMetadata = (title: string, vendorId: string) => ({
       summary: { text: title },
       path: '/repo',
       agent: 'claude',
@@ -177,21 +179,21 @@ describe('listSessions', () => {
       claudeSessionId: vendorId,
     });
     fetchSessionsPage.mockResolvedValue(createSessionListResponseFixture([
-      createSessionRecordFixture({
+      encryptedSession({
         id: 'pinned-oldest',
         active: false,
         updatedAt: 100,
         meaningfulActivityAt: 100,
         metadata: resumableMetadata('Pinned oldest', 'vendor-oldest'),
       }),
-      createSessionRecordFixture({
+      encryptedSession({
         id: 'pinned-older',
         active: false,
         updatedAt: 200,
         meaningfulActivityAt: 200,
         metadata: resumableMetadata('Pinned older', 'vendor-older'),
       }),
-      createSessionRecordFixture({
+      encryptedSession({
         id: 'fresh-page-row',
         active: false,
         updatedAt: 300,
@@ -219,9 +221,9 @@ describe('listSessions', () => {
 
   it('adds a bounded semantic last message preview only when requested', async () => {
     fetchSessionsPage.mockResolvedValue(createSessionListResponseFixture([
-      createSessionRecordFixture({
+      encryptedSession({
         id: 'sess-1',
-        metadata: encryptedMetadata({ summary: { text: 'Session one' } }),
+        metadata: { summary: { text: 'Session one' } },
       }),
     ]));
     getSessionTranscript.mockResolvedValue({
@@ -264,13 +266,13 @@ describe('listSessions', () => {
 
   it('keeps listing sessions when a preview lookup fails', async () => {
     fetchSessionsPage.mockResolvedValue(createSessionListResponseFixture([
-      createSessionRecordFixture({
+      encryptedSession({
         id: 'sess-1',
-        metadata: encryptedMetadata({ summary: { text: 'Session one' } }),
+        metadata: { summary: { text: 'Session one' } },
       }),
-      createSessionRecordFixture({
+      encryptedSession({
         id: 'sess-2',
-        metadata: encryptedMetadata({ summary: { text: 'Session two' } }),
+        metadata: { summary: { text: 'Session two' } },
       }),
     ]));
     getSessionTranscript

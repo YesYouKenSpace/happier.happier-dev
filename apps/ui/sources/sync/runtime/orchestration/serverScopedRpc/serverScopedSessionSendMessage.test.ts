@@ -35,6 +35,8 @@ vi.mock('@/sync/runtime/connectivity/serverReachabilityRuntimeFetch', () => ({
 }));
 
 import { loadPendingOutboxForSession } from '@/sync/domains/state/pendingOutboxPersistence';
+import { saveAccountSettings } from '@/sync/domains/state/accountSettingsPersistence';
+import { settingsDefaults } from '@/sync/domains/settings/settings';
 import { storage } from '@/sync/domains/state/storage';
 import { parseReleasedServerV021Features } from '@/dev/testkit';
 import {
@@ -141,6 +143,16 @@ function createScopedHarness(params?: Readonly<{
     overrides: { encryptionMode: 'plain' },
   });
   storage.getState().applySessions([session]);
+  // Scoped plaintext issuance requires a resolvable requirement for the target account's own scope.
+  saveAccountSettings(
+    { serverId: 'server-b', accountId: 'account-b' },
+    {
+      ...settingsDefaults,
+      clientEncryptionRequirementV1: 'follow_account',
+      clientEncryptionRequirementLocalV1: 'follow_account',
+    },
+    1,
+  );
   const schedulePendingOutboxRetry = vi.fn();
   const subject = createServerScopedSessionSendMessage({
     getSession: () => session,

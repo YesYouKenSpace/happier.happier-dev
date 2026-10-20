@@ -19,8 +19,9 @@ export async function resolveScopedPendingSessionEncryption(params: Readonly<{
         token: params.context.token,
         sessionId: params.sessionId,
         timeoutMs: params.context.timeoutMs,
-        decryptEncryptionKey: (value) => params.context.encryption.decryptEncryptionKey(value),
+        encryption: params.context.encryption,
     });
+    if (!sessionDataKey) throw new Error(`Session encryption unavailable for ${params.sessionId}`);
 
     await params.context.encryption.initializeSessions(new Map([[params.sessionId, sessionDataKey]]));
     const sessionEncryption = params.context.encryption.getSessionEncryption(params.sessionId);

@@ -1,4 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { configuration } from '@/configuration';
+
+const previousRequirement = configuration.clientEncryptionRequirement;
+beforeEach(() => Object.assign(configuration, { clientEncryptionRequirement: 'follow_account' }));
+afterEach(() => Object.assign(configuration, { clientEncryptionRequirement: previousRequirement }));
 
 import {
   decryptSessionPayload,

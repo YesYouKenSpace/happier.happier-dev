@@ -91,6 +91,7 @@ import {
     fetchAndApplyPendingMessagesV2,
     replayPersistedPendingOutboxForSession,
 } from '@/sync/engine/pending/pendingQueueV2';
+import { permitPlainPendingForScope } from '@/sync/engine/pending/pendingQueueV2.testHelpers';
 import { resolveSessionRequestForServerAccountScope } from '@/sync/runtime/orchestration/serverScopedRpc/createSessionRequestWithServerScope';
 import {
     setActiveServerId,
@@ -367,7 +368,7 @@ describe('sync.sendMessage optimistic thinking', () => {
         storage.getState().applySessions([createSession({ sessionId })]);
 
         const encryption = await Encryption.create(new Uint8Array(32).fill(9));
-        await encryption.initializeSessions(new Map([[sessionId, null]]));
+        await encryption.initializeSessions(new Map([[sessionId, new Uint8Array(32).fill(2)]]));
 
         const { sync } = await import('./sync');
         sync.encryption = encryption;
@@ -410,7 +411,7 @@ describe('sync.sendMessage optimistic thinking', () => {
         storage.getState().applySessions([createSession({ sessionId })]);
 
         const encryption = await Encryption.create(new Uint8Array(32).fill(9));
-        await encryption.initializeSessions(new Map([[sessionId, null]]));
+        await encryption.initializeSessions(new Map([[sessionId, new Uint8Array(32).fill(2)]]));
 
         const { sync } = await import('./sync');
         sync.encryption = encryption;
@@ -571,7 +572,7 @@ describe('sync.sendMessage optimistic thinking', () => {
         const sessionId = 's_missing_then_hydrated';
 
         const encryption = await Encryption.create(new Uint8Array(32).fill(9));
-        await encryption.initializeSessions(new Map([[sessionId, null]]));
+        await encryption.initializeSessions(new Map([[sessionId, new Uint8Array(32).fill(2)]]));
 
         const emitWithAck = vi.fn(async () => ({
             ok: true,
@@ -614,7 +615,7 @@ describe('sync.sendMessage optimistic thinking', () => {
         storage.getState().applySessions([createSession({ sessionId })]);
 
         const encryption = await Encryption.create(new Uint8Array(32).fill(9));
-        await encryption.initializeSessions(new Map([[sessionId, null]]));
+        await encryption.initializeSessions(new Map([[sessionId, new Uint8Array(32).fill(2)]]));
 
         const { sync } = await import('./sync');
         sync.encryption = encryption;
@@ -652,7 +653,7 @@ describe('sync.sendMessage optimistic thinking', () => {
         storage.getState().applySessions([createSession({ sessionId })]);
 
         const encryption = await Encryption.create(new Uint8Array(32).fill(9));
-        await encryption.initializeSessions(new Map([[sessionId, null]]));
+        await encryption.initializeSessions(new Map([[sessionId, new Uint8Array(32).fill(2)]]));
 
         const { sync } = await import('./sync');
         sync.encryption = encryption;
@@ -692,7 +693,7 @@ describe('sync.sendMessage optimistic thinking', () => {
         storage.getState().applySessions([createSession({ sessionId })]);
 
         const encryption = await Encryption.create(new Uint8Array(32).fill(9));
-        await encryption.initializeSessions(new Map([[sessionId, null]]));
+        await encryption.initializeSessions(new Map([[sessionId, new Uint8Array(32).fill(2)]]));
 
         const { sync } = await import('./sync');
         sync.encryption = encryption;
@@ -734,7 +735,7 @@ describe('sync.sendMessage optimistic thinking', () => {
         storage.getState().applySessions([createSession({ sessionId })]);
 
         const encryption = await Encryption.create(new Uint8Array(32).fill(9));
-        await encryption.initializeSessions(new Map([[sessionId, null]]));
+        await encryption.initializeSessions(new Map([[sessionId, new Uint8Array(32).fill(2)]]));
 
         const { sync } = await import('./sync');
         sync.encryption = encryption;
@@ -778,7 +779,7 @@ describe('sync.sendMessage optimistic thinking', () => {
         storage.getState().applySessions([createSession({ sessionId })]);
 
         const encryption = await Encryption.create(new Uint8Array(32).fill(9));
-        await encryption.initializeSessions(new Map([[sessionId, null]]));
+        await encryption.initializeSessions(new Map([[sessionId, new Uint8Array(32).fill(2)]]));
 
         const sessionRpcSpy = vi.spyOn(apiSocket, 'sessionRPC').mockResolvedValue({ ok: true } as any);
         const emitWithAck = vi.fn(async () => ({
@@ -828,7 +829,7 @@ describe('sync.sendMessage optimistic thinking', () => {
             metadata: { machineId: 'm1', path: '/repo', flavor: 'codex' } as any,
         })]);
         const encryption = await Encryption.create(new Uint8Array(32).fill(9));
-        await encryption.initializeSessions(new Map([[sessionId, null]]));
+        await encryption.initializeSessions(new Map([[sessionId, new Uint8Array(32).fill(2)]]));
         vi.spyOn(apiSocket, 'sessionRPC').mockRejectedValue(createRpcMethodNotAvailableError());
         const emitWithAck = vi.fn(async () => ({
             ok: true,
@@ -861,7 +862,7 @@ describe('sync.sendMessage optimistic thinking', () => {
             metadata: { machineId: 'm1', path: '/repo', flavor: 'codex' } as any,
         })]);
         const encryption = await Encryption.create(new Uint8Array(32).fill(9));
-        await encryption.initializeSessions(new Map([[sessionId, null]]));
+        await encryption.initializeSessions(new Map([[sessionId, new Uint8Array(32).fill(2)]]));
         vi.spyOn(apiSocket, 'sessionRPC').mockRejectedValue(createRpcMethodNotAvailableError());
         let seq = 40;
         const emitWithAck = vi.fn(async () => ({
@@ -891,7 +892,7 @@ describe('sync.sendMessage optimistic thinking', () => {
         storage.getState().applySessions([createSession({ sessionId })]);
 
         const encryption = await Encryption.create(new Uint8Array(32).fill(9));
-        await encryption.initializeSessions(new Map([[sessionId, null]]));
+        await encryption.initializeSessions(new Map([[sessionId, new Uint8Array(32).fill(2)]]));
 
         const sessionRpcSpy = vi.spyOn(apiSocket, 'sessionRPC').mockResolvedValue({ ok: true } as any);
         const requestSpy = vi.spyOn(apiSocket, 'request').mockResolvedValue(
@@ -1049,6 +1050,8 @@ describe('sync.sendMessage optimistic thinking', () => {
             const profileB = upsertServerProfile({ serverUrl: serverBUrl, name: 'Pending B' });
             const scopeA = { serverId: profileA.id, accountId: 'account-a' } as const;
             const scopeB = { serverId: profileB.id, accountId: 'account-b' } as const;
+            permitPlainPendingForScope(scopeA);
+            permitPlainPendingForScope(scopeB);
             storage.getState().applySessions([{ ...createSession({ sessionId }), encryptionMode: 'plain' }]);
             (await savePendingOutboxMessage(pendingOutboxFixture({ sessionId, localId, text: 'scope A' }), scopeA));
             (await savePendingOutboxMessage(pendingOutboxFixture({ sessionId, localId, text: 'scope B' }), scopeB));
@@ -1290,7 +1293,7 @@ describe('sync.sendMessage optimistic thinking', () => {
         storage.getState().applySessions([createSession({ sessionId })]);
 
         const encryption = await Encryption.create(new Uint8Array(32).fill(9));
-        await encryption.initializeSessions(new Map([[sessionId, null]]));
+        await encryption.initializeSessions(new Map([[sessionId, new Uint8Array(32).fill(2)]]));
 
         const { sync } = await import('./sync');
         sync.encryption = encryption;
@@ -1337,7 +1340,7 @@ describe('sync.sendMessage optimistic thinking', () => {
             storage.getState().applySessions([createSession({ sessionId })]);
 
             const encryption = await Encryption.create(new Uint8Array(32).fill(9));
-            await encryption.initializeSessions(new Map([[sessionId, null]]));
+            await encryption.initializeSessions(new Map([[sessionId, new Uint8Array(32).fill(2)]]));
 
             const sessionRpcSpy = vi.spyOn(apiSocket, 'sessionRPC').mockRejectedValue(sessionRpcError);
             const emitWithAck = vi.fn(async () => ({
@@ -1406,7 +1409,7 @@ describe('sync.sendMessage optimistic thinking', () => {
         })]);
 
         const encryption = await Encryption.create(new Uint8Array(32).fill(9));
-        await encryption.initializeSessions(new Map([[sessionId, null]]));
+        await encryption.initializeSessions(new Map([[sessionId, new Uint8Array(32).fill(2)]]));
 
         const sessionRpcSpy = vi.spyOn(apiSocket, 'sessionRPC').mockResolvedValue({ ok: true } as any);
         const emitWithAck = vi.fn(async () => ({
@@ -1448,7 +1451,7 @@ describe('sync.sendMessage optimistic thinking', () => {
         })]);
 
         const encryption = await Encryption.create(new Uint8Array(32).fill(9));
-        await encryption.initializeSessions(new Map([[sessionId, null]]));
+        await encryption.initializeSessions(new Map([[sessionId, new Uint8Array(32).fill(2)]]));
 
         const sessionRpcSpy = vi.spyOn(apiSocket, 'sessionRPC').mockResolvedValue({ ok: true } as any);
         const emitWithAck = vi.fn(async () => ({
@@ -1479,7 +1482,7 @@ describe('sync.sendMessage optimistic thinking', () => {
             storage.getState().applySessions([createSession({ sessionId })]);
 
             const encryption = await Encryption.create(new Uint8Array(32).fill(9));
-            await encryption.initializeSessions(new Map([[sessionId, null]]));
+            await encryption.initializeSessions(new Map([[sessionId, new Uint8Array(32).fill(2)]]));
 
             const initialSupervisor = createReadyEndpointSupervisor();
             const retrySupervisor = createAuthProbeEndpointSupervisor();
@@ -1504,7 +1507,7 @@ describe('sync.sendMessage optimistic thinking', () => {
             storage.getState().markSessionOptimisticThinking(sessionId);
 
             await vi.advanceTimersByTimeAsync(1_000);
-            await Promise.resolve();
+            await vi.waitFor(() => expect(storage.getState().syncError).toMatchObject({ kind: 'auth', retryable: false }));
 
             expect(emitWithAck).toHaveBeenCalledTimes(2);
             expect(retrySupervisor.invalidate).toHaveBeenCalledTimes(1);
@@ -1598,7 +1601,7 @@ describe('sync.sendMessage optimistic thinking', () => {
             expect(storage.getState().sessionPending[sessionId]?.messages?.length ?? 0).toBe(1);
 
             await vi.advanceTimersByTimeAsync(1_000);
-            await Promise.resolve();
+            await vi.waitFor(() => expect(storage.getState().sessionPending[sessionId]?.messages ?? []).toEqual([]));
 
             expect(getSessionEncryption).not.toHaveBeenCalled();
             expect(emitWithAck).toHaveBeenCalledTimes(2);
@@ -1622,7 +1625,7 @@ describe('sync.sendMessage optimistic thinking', () => {
         storage.getState().applySessions([createSession({ sessionId })]);
 
         const encryption = await Encryption.create(new Uint8Array(32).fill(9));
-        await encryption.initializeSessions(new Map([[sessionId, null]]));
+        await encryption.initializeSessions(new Map([[sessionId, new Uint8Array(32).fill(2)]]));
 
         const { sync } = await import('./sync');
         sync.encryption = encryption;
@@ -1902,7 +1905,7 @@ describe('sync.sendMessage optimistic thinking', () => {
         expect(typeof localUpdatedAt).toBe('number');
 
         const encryption = await Encryption.create(new Uint8Array(32).fill(9));
-        await encryption.initializeSessions(new Map([[sessionId, null]]));
+        await encryption.initializeSessions(new Map([[sessionId, new Uint8Array(32).fill(2)]]));
 
         const { sync } = await import('./sync');
         sync.encryption = encryption;
@@ -1997,7 +2000,7 @@ describe('sync.sendMessage optimistic thinking', () => {
         storage.getState().applySettingsLocal({ sessionPermissionModeApplyTiming: 'next_prompt' as any });
 
         const encryption = await Encryption.create(new Uint8Array(32).fill(9));
-        await encryption.initializeSessions(new Map([[sessionId, null]]));
+        await encryption.initializeSessions(new Map([[sessionId, new Uint8Array(32).fill(2)]]));
 
         const { sync } = await import('./sync');
         sync.encryption = encryption;

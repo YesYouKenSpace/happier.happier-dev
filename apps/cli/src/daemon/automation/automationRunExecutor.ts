@@ -3,6 +3,7 @@ import type {
   SpawnSessionOptions,
   SpawnSessionResult,
 } from '@/rpc/handlers/registerSessionHandlers';
+import { SessionKeyAuthenticationError } from '@happier-dev/protocol';
 
 import { startAutomationLeaseHeartbeat } from './automationLeaseHeartbeat';
 import { enqueueAutomationPrompt } from './automationPendingQueueClient';
@@ -150,32 +151,21 @@ export async function executeClaimedRun(params: {
     if (spawnResult.type === 'success') {
       if (template.targetType === 'existing_session' && typeof template.prompt === 'string' && template.prompt.trim().length > 0) {
         const sessionEncryptionMode = template.sessionEncryptionMode === 'plain' ? 'plain' : 'e2ee';
-        const sessionEncryptionKeyBase64 = template.sessionEncryptionKeyBase64?.trim() ?? '';
-        if (sessionEncryptionMode !== 'plain' && !sessionEncryptionKeyBase64) {
-          await claimClient.failRun({
-            runId: claimed.run.id,
-            machineId,
-            errorCode: 'missing_session_encryption_key',
-            errorMessage: 'existing_session automation prompt delivery requires sessionEncryptionKeyBase64',
-          });
-          return;
-        }
-
         try {
           await enqueueAutomationPrompt({
             token,
+            encryption,
             sessionId: template.existingSessionId!,
             prompt: template.prompt,
             ...(typeof template.displayText === 'string' ? { displayText: template.displayText } : {}),
             sessionEncryptionMode,
             localId: `automation:run:${claimed.run.id}`,
-            ...(sessionEncryptionMode === 'plain' ? {} : { sessionEncryptionKeyBase64 }),
           });
         } catch (error) {
           await claimClient.failRun({
             runId: claimed.run.id,
             machineId,
-            errorCode: 'prompt_delivery_failed',
+            errorCode: error instanceof SessionKeyAuthenticationError ? error.code : 'prompt_delivery_failed',
             errorMessage: error instanceof Error ? error.message : String(error),
           });
           return;
@@ -215,7 +205,7 @@ export async function executeClaimedRun(params: {
     await claimClient.failRun({
       runId: claimed.run.id,
       machineId,
-      errorCode: 'unexpected_error',
+      errorCode: error instanceof SessionKeyAuthenticationError ? error.code : 'unexpected_error',
       errorMessage: error instanceof Error ? error.message : String(error),
     }).catch((innerError) => {
       logAutomationWarn('Failed to record automation run failure', innerError, {

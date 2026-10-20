@@ -1,4 +1,5 @@
 import { isTerminalAuthError } from '@/sync/runtime/connectivity/authErrors';
+import { isUiClientEncryptionRequirementError } from '@/sync/domains/settings/clientEncryptionRequirement';
 
 export async function socketEmitWithAckFallback<TAck>(params: {
     emitWithAck: (event: string, payload: any, opts?: { timeoutMs?: number }) => Promise<TAck>;
@@ -13,7 +14,7 @@ export async function socketEmitWithAckFallback<TAck>(params: {
         try {
             return await params.emitWithAck(params.event, params.payload, { timeoutMs: params.timeoutMs });
         } catch (error) {
-            if (isTerminalAuthError(error)) {
+            if (isTerminalAuthError(error) || isUiClientEncryptionRequirementError(error)) {
                 throw error;
             }
             return null;

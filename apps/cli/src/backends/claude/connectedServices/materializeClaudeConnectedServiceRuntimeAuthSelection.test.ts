@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { configuration, reloadConfiguration } from '@/configuration';
 
 import {
   accountSettingsParse,
@@ -56,12 +57,18 @@ describe('materializeClaudeConnectedServiceRuntimeAuthSelection', () => {
   const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform');
 
   beforeEach(() => {
+    // Continuity mechanics, not encryption policy; run permissive under the fork default.
+    vi.stubEnv('HAPPIER_ENCRYPTION_REQUIREMENT', 'follow_account');
+    // The configuration singleton is read at call time; env stubs alone cannot reach it.
+    Object.assign(configuration, { clientEncryptionRequirement: 'follow_account' });
     if (originalPlatformDescriptor) {
       Object.defineProperty(process, 'platform', { ...originalPlatformDescriptor, value: 'linux' });
     }
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
+    reloadConfiguration();
     if (originalPlatformDescriptor) {
       Object.defineProperty(process, 'platform', originalPlatformDescriptor);
     }

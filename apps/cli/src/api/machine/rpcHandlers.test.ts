@@ -8,7 +8,7 @@ import tweetnacl from 'tweetnacl';
 import axios from 'axios';
 
 import { RPC_METHODS } from '@happier-dev/protocol/rpc';
-import { sealEncryptedDataKeyEnvelopeV1, SPAWN_SESSION_ERROR_CODES, SPAWN_SESSION_ERROR_DETAIL_KINDS } from '@happier-dev/protocol';
+import { buildSessionKeyBindingMetadataField, sealOwnerSessionDataKeyEnvelope, SPAWN_SESSION_ERROR_CODES, SPAWN_SESSION_ERROR_DETAIL_KINDS } from '@happier-dev/protocol';
 import { buildCodexAgentRuntimeDescriptor } from '@happier-dev/agents';
 import { encrypt, encodeBase64 } from '@/api/encryption';
 import type { HttpStatusErrorWithCode } from '@/api/client/httpStatusError';
@@ -176,6 +176,40 @@ vi.mock('@/daemon/controlClient', async (importOriginal) => {
 });
 
 /**
+ * Authenticated owner-session fixtures for replay/fork parents. The strict session
+ * resolver requires a tag-bound account envelope plus an ID binding inside the
+ * DEK-encrypted metadata; anonymous V1 envelopes and binding-less rows are rejected
+ * by design (see ownerSessionDataKeyEnvelope), so success-path fixtures build both.
+ */
+const PARENT_SESSION_TAG = 'replay-parent-tag';
+
+function sealParentSessionEnvelope(
+  machineKey: Uint8Array,
+  sessionEncryptionKey: Uint8Array,
+  fill: number,
+): Uint8Array {
+  return sealOwnerSessionDataKeyEnvelope({
+    dataKey: sessionEncryptionKey,
+    material: { type: 'dataKey', machineKey },
+    sessionTag: PARENT_SESSION_TAG,
+    randomBytes: (length: number) => new Uint8Array(length).fill(fill),
+  });
+}
+
+function parentSessionMetadata(
+  sessionEncryptionKey: Uint8Array,
+  sessionId: string,
+  metadata: Record<string, unknown>,
+): string {
+  return encodeBase64(
+    encrypt(sessionEncryptionKey, 'dataKey', {
+      ...metadata,
+      ...buildSessionKeyBindingMetadataField({ sessionId, sessionTag: PARENT_SESSION_TAG }),
+    }),
+  );
+}
+
+/**
  * What `POST /v1/sessions` answers with: the row carrying the exact creation
  * metadata the caller just posted, lineage envelopes included. Echoing it keeps
  * the fixture honest — the canonical creator authenticates the returned row
@@ -204,6 +238,12 @@ describe('registerMachineRpcHandlers', () => {
     // Many tests spy on axios.get; restore between tests so mockResolvedValueOnce
     // chains cannot leak across cases.
     vi.restoreAllMocks();
+    // Child creation publishes its ID binding through a metadata PATCH after the
+    // create response; succeed it so replay/fork flows exercise the real path.
+    vi.spyOn(axios, 'patch').mockResolvedValue({
+      status: 200,
+      data: { success: true, metadata: { version: 1 } },
+    });
     readCredentialsMock.mockReset();
     psListMock.mockReset();
     updateSessionMetadataWithRetryMock.mockClear();
@@ -1733,11 +1773,7 @@ describe('registerMachineRpcHandlers', () => {
     });
 
     const sessionEncryptionKey = new Uint8Array(32).fill(5);
-    const envelope = sealEncryptedDataKeyEnvelopeV1({
-      dataKey: sessionEncryptionKey,
-      recipientPublicKey: publicKey,
-      randomBytes: (length: number) => new Uint8Array(length).fill(7),
-    });
+    const envelope = sealParentSessionEnvelope(machineKey, sessionEncryptionKey, 7);
 
     const encryptedOne = encodeBase64(
       encrypt(sessionEncryptionKey, 'dataKey', { role: 'user', content: { type: 'text', text: 'one '.repeat(2000) } }),
@@ -1761,7 +1797,7 @@ describe('registerMachineRpcHandlers', () => {
             updatedAt: 2,
             active: true,
             activeAt: 2,
-            metadata: '',
+            metadata: parentSessionMetadata(sessionEncryptionKey, 'sess_prev', { path: '/repo', flavor: 'claude' }),
             metadataVersion: 0,
             agentState: null,
             agentStateVersion: 0,
@@ -1877,11 +1913,7 @@ describe('registerMachineRpcHandlers', () => {
     });
 
     const sessionEncryptionKey = new Uint8Array(32).fill(5);
-    const envelope = sealEncryptedDataKeyEnvelopeV1({
-      dataKey: sessionEncryptionKey,
-      recipientPublicKey: publicKey,
-      randomBytes: (length: number) => new Uint8Array(length).fill(7),
-    });
+    const envelope = sealParentSessionEnvelope(machineKey, sessionEncryptionKey, 7);
 
     const encryptedTwo = encodeBase64(
       encrypt(sessionEncryptionKey, 'dataKey', { role: 'agent', content: { type: 'text', text: 'two' } }),
@@ -1902,7 +1934,7 @@ describe('registerMachineRpcHandlers', () => {
             updatedAt: 2,
             active: true,
             activeAt: 2,
-            metadata: '',
+            metadata: parentSessionMetadata(sessionEncryptionKey, 'sess_prev', { path: '/repo', flavor: 'claude' }),
             metadataVersion: 0,
             agentState: null,
             agentStateVersion: 0,
@@ -2148,11 +2180,7 @@ describe('registerMachineRpcHandlers', () => {
     });
 
     const sessionEncryptionKey = new Uint8Array(32).fill(5);
-    const envelope = sealEncryptedDataKeyEnvelopeV1({
-      dataKey: sessionEncryptionKey,
-      recipientPublicKey: publicKey,
-      randomBytes: (length: number) => new Uint8Array(length).fill(7),
-    });
+    const envelope = sealParentSessionEnvelope(machineKey, sessionEncryptionKey, 7);
 
     const messages = Array.from({ length: 40 }, (_v, i) => {
       const n = i + 1;
@@ -2177,7 +2205,7 @@ describe('registerMachineRpcHandlers', () => {
             updatedAt: 2,
             active: true,
             activeAt: 2,
-            metadata: '',
+            metadata: parentSessionMetadata(sessionEncryptionKey, 'sess_prev', { path: '/repo', flavor: 'claude' }),
             metadataVersion: 0,
             agentState: null,
             agentStateVersion: 0,
@@ -2269,11 +2297,7 @@ describe('registerMachineRpcHandlers', () => {
     });
 
     const sessionEncryptionKey = new Uint8Array(32).fill(5);
-    const envelope = sealEncryptedDataKeyEnvelopeV1({
-      dataKey: sessionEncryptionKey,
-      recipientPublicKey: publicKey,
-      randomBytes: (length: number) => new Uint8Array(length).fill(7),
-    });
+    const envelope = sealParentSessionEnvelope(machineKey, sessionEncryptionKey, 7);
 
     const encryptedOne = encodeBase64(
       encrypt(sessionEncryptionKey, 'dataKey', { role: 'user', content: { type: 'text', text: 'one' } }),
@@ -2295,7 +2319,7 @@ describe('registerMachineRpcHandlers', () => {
             updatedAt: 2,
             active: true,
             activeAt: 2,
-            metadata: '',
+            metadata: parentSessionMetadata(sessionEncryptionKey, 'sess_prev', { path: '/repo', flavor: 'claude' }),
             metadataVersion: 0,
             agentState: null,
             agentStateVersion: 0,
@@ -2759,15 +2783,9 @@ describe('registerMachineRpcHandlers', () => {
     });
 
     const sessionEncryptionKey = new Uint8Array(32).fill(5);
-    const envelope = sealEncryptedDataKeyEnvelopeV1({
-      dataKey: sessionEncryptionKey,
-      recipientPublicKey: publicKey,
-      randomBytes: (length: number) => new Uint8Array(length).fill(7),
-    });
+    const envelope = sealParentSessionEnvelope(machineKey, sessionEncryptionKey, 7);
 
-    const parentMetadataCiphertext = encodeBase64(
-      encrypt(sessionEncryptionKey, 'dataKey', { path: '/repo', flavor: 'claude', permissionMode: { v: 1, mode: 'default', updatedAt: 1 } }),
-    );
+    const parentMetadataCiphertext = parentSessionMetadata(sessionEncryptionKey, 'sess_parent', { path: '/repo', flavor: 'claude', permissionMode: { v: 1, mode: 'default', updatedAt: 1 } });
 
     const encryptedMessages: string[] = [];
     for (let i = 1; i <= 20; i++) {
@@ -3183,20 +3201,14 @@ describe('registerMachineRpcHandlers', () => {
     });
 
     const sessionEncryptionKey = new Uint8Array(32).fill(5);
-    const envelope = sealEncryptedDataKeyEnvelopeV1({
-      dataKey: sessionEncryptionKey,
-      recipientPublicKey: publicKey,
-      randomBytes: (length: number) => new Uint8Array(length).fill(7),
-    });
+    const envelope = sealParentSessionEnvelope(machineKey, sessionEncryptionKey, 7);
 
-    const parentMetadataCiphertext = encodeBase64(
-      encrypt(sessionEncryptionKey, 'dataKey', {
+    const parentMetadataCiphertext = parentSessionMetadata(sessionEncryptionKey, 'sess_parent', {
         path: '/repo',
         flavor: 'claude',
         summary: { text: 'TITLE_ONLY_SUMMARY', updatedAt: 1 },
         permissionMode: { v: 1, mode: 'default', updatedAt: 1 },
-      }),
-    );
+      });
 
     const encryptedMessages: string[] = [];
     for (let i = 1; i <= 3; i++) {
@@ -3337,19 +3349,13 @@ describe('registerMachineRpcHandlers', () => {
     });
 
     const sessionEncryptionKey = new Uint8Array(32).fill(5);
-    const envelope = sealEncryptedDataKeyEnvelopeV1({
-      dataKey: sessionEncryptionKey,
-      recipientPublicKey: publicKey,
-      randomBytes: (length: number) => new Uint8Array(length).fill(7),
-    });
+    const envelope = sealParentSessionEnvelope(machineKey, sessionEncryptionKey, 7);
 
-    const parentMetadataCiphertext = encodeBase64(
-      encrypt(sessionEncryptionKey, 'dataKey', {
+    const parentMetadataCiphertext = parentSessionMetadata(sessionEncryptionKey, 'sess_prev', {
         path: '/repo',
         flavor: 'claude',
         summary: { text: 'TITLE_ONLY_SUMMARY', updatedAt: 1 },
-      }),
-    );
+      });
 
     const encryptedOne = encodeBase64(
       encrypt(sessionEncryptionKey, 'dataKey', { role: 'user', content: { type: 'text', text: 'one' } }),
@@ -3752,14 +3758,9 @@ describe('registerMachineRpcHandlers', () => {
     });
 
     const sessionEncryptionKey = new Uint8Array(32).fill(5);
-    const envelope = sealEncryptedDataKeyEnvelopeV1({
-      dataKey: sessionEncryptionKey,
-      recipientPublicKey: publicKey,
-      randomBytes: (length: number) => new Uint8Array(length).fill(7),
-    });
+    const envelope = sealParentSessionEnvelope(machineKey, sessionEncryptionKey, 7);
 
-    const parentMetadataCiphertext = encodeBase64(
-      encrypt(sessionEncryptionKey, 'dataKey', {
+    const parentMetadataCiphertext = parentSessionMetadata(sessionEncryptionKey, 'sess_parent', {
         path: '/repo',
         flavor: 'codex',
         codexSessionId: 'codex_parent',
@@ -3797,8 +3798,7 @@ describe('registerMachineRpcHandlers', () => {
           availableModels: [{ id: 'model-1', name: 'Model 1' }],
         },
         permissionMode: { v: 1, mode: 'default', updatedAt: 1 },
-      }),
-    );
+      });
 
     const getSpy = vi.spyOn(axios, 'get');
     getSpy
@@ -3929,14 +3929,9 @@ describe('registerMachineRpcHandlers', () => {
     });
 
     const sessionEncryptionKey = new Uint8Array(32).fill(5);
-    const envelope = sealEncryptedDataKeyEnvelopeV1({
-      dataKey: sessionEncryptionKey,
-      recipientPublicKey: publicKey,
-      randomBytes: (length: number) => new Uint8Array(length).fill(7),
-    });
+    const envelope = sealParentSessionEnvelope(machineKey, sessionEncryptionKey, 7);
 
-    const parentMetadataCiphertext = encodeBase64(
-      encrypt(sessionEncryptionKey, 'dataKey', {
+    const parentMetadataCiphertext = parentSessionMetadata(sessionEncryptionKey, 'sess_parent', {
         path: '/repo',
         flavor: 'codex',
         codexSessionId: 'codex_parent',
@@ -3974,8 +3969,7 @@ describe('registerMachineRpcHandlers', () => {
           availableModels: [{ id: 'model-1', name: 'Model 1' }],
         },
         permissionMode: { v: 1, mode: 'default', updatedAt: 1 },
-      }),
-    );
+      });
 
     const getSpy = vi.spyOn(axios, 'get');
     getSpy
@@ -4546,13 +4540,8 @@ describe('registerMachineRpcHandlers', () => {
     });
 
     const sessionEncryptionKey = new Uint8Array(32).fill(3);
-    const envelope = sealEncryptedDataKeyEnvelopeV1({
-      dataKey: sessionEncryptionKey,
-      recipientPublicKey: publicKey,
-      randomBytes: (length: number) => new Uint8Array(length).fill(4),
-    });
-    const parentMetadataCiphertext = encodeBase64(
-      encrypt(sessionEncryptionKey, 'dataKey', {
+    const envelope = sealParentSessionEnvelope(machineKey, sessionEncryptionKey, 4);
+    const parentMetadataCiphertext = parentSessionMetadata(sessionEncryptionKey, 'sess_parent', {
         path: '/repo',
         flavor: 'codex',
         codexSessionId: 'codex_parent',
@@ -4561,8 +4550,7 @@ describe('registerMachineRpcHandlers', () => {
           providerId: 'codex',
           provider: { backendMode: 'acp', vendorSessionId: 'codex_parent' },
         },
-      }),
-    );
+      });
 
     const getSpy = vi.spyOn(axios, 'get');
     getSpy
@@ -4797,27 +4785,15 @@ describe('registerMachineRpcHandlers', () => {
 
     const rootKey = new Uint8Array(32).fill(5);
     const childKey = new Uint8Array(32).fill(6);
-    const rootEnvelope = sealEncryptedDataKeyEnvelopeV1({
-      dataKey: rootKey,
-      recipientPublicKey: publicKey,
-      randomBytes: (length: number) => new Uint8Array(length).fill(7),
-    });
-    const childEnvelope = sealEncryptedDataKeyEnvelopeV1({
-      dataKey: childKey,
-      recipientPublicKey: publicKey,
-      randomBytes: (length: number) => new Uint8Array(length).fill(8),
-    });
+    const rootEnvelope = sealParentSessionEnvelope(machineKey, rootKey, 7);
+    const childEnvelope = sealParentSessionEnvelope(machineKey, childKey, 8);
 
-    const rootMetadataCiphertext = encodeBase64(
-      encrypt(rootKey, 'dataKey', { path: '/repo', flavor: 'claude' }),
-    );
-    const childMetadataCiphertext = encodeBase64(
-      encrypt(childKey, 'dataKey', {
+    const rootMetadataCiphertext = parentSessionMetadata(rootKey, 'sess_root', { path: '/repo', flavor: 'claude' });
+    const childMetadataCiphertext = parentSessionMetadata(childKey, 'sess_child', {
         path: '/repo',
         flavor: 'claude',
         forkV1: { v: 1, parentSessionId: 'sess_root', parentCutoffSeqInclusive: 3, createdAtMs: 1, strategy: 'replay' },
-      }),
-    );
+      });
 
     const encryptedRootMessages = [
       encodeBase64(encrypt(rootKey, 'dataKey', { role: 'user', content: { type: 'text', text: 'root-unique' } })),
@@ -7037,11 +7013,7 @@ describe('registerMachineRpcHandlers', () => {
     });
 
     const sessionEncryptionKey = new Uint8Array(32).fill(5);
-    const envelope = sealEncryptedDataKeyEnvelopeV1({
-      dataKey: sessionEncryptionKey,
-      recipientPublicKey: publicKey,
-      randomBytes: (length: number) => new Uint8Array(length).fill(7),
-    });
+    const envelope = sealParentSessionEnvelope(machineKey, sessionEncryptionKey, 7);
 
     const encryptedOne = encodeBase64(
       encrypt(sessionEncryptionKey, 'dataKey', { role: 'user', content: { type: 'text', text: 'hello' } }),
@@ -7060,7 +7032,7 @@ describe('registerMachineRpcHandlers', () => {
             updatedAt: 2,
             active: true,
             activeAt: 2,
-            metadata: '',
+            metadata: parentSessionMetadata(sessionEncryptionKey, 'sess_prev', { path: '/repo', flavor: 'claude' }),
             metadataVersion: 0,
             agentState: null,
             agentStateVersion: 0,

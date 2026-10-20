@@ -54,6 +54,7 @@ import { writeConsoleLogBestEffort } from '@/utils/writeConsoleBestEffort';
 import { exponentialBackoffDelay } from '@/utils/time';
 import { logger } from '@/ui/logger';
 import { isAuthenticationError } from '@/api/client/httpStatusError';
+import { SessionKeyAuthenticationError } from '@happier-dev/protocol';
 
 /**
  * Configuration for offline reconnection behavior.
@@ -65,7 +66,7 @@ export interface OfflineReconnectionConfig<TSession> {
 
     /**
      * Called when server becomes available - should create and return session.
-     * If this throws, it's treated as a connection error and retried.
+     * Authentication and session-key failures stop retries; transient errors retry.
      */
     onReconnected: () => Promise<TSession>;
 
@@ -118,7 +119,7 @@ export interface OfflineReconnectionHandle<TSession> {
  *
  * ## Retry Behavior
  * - **Retries are UNLIMITED** - will keep trying for hours/days/weeks
- * - Only auth failures (401) stop retrying
+ * - HTTP authentication and session-key authentication failures stop retrying
  * - Sessions can stay open indefinitely; server outages are expected
  *
  * ## Backoff Timing (via exponentialBackoffDelay from time.ts)
@@ -201,6 +202,11 @@ export function startOfflineReconnection<TSession>(
             config.onNotify('✅ Reconnected! Session syncing in background.');
             logger.debug('[OfflineReconnection] Successfully reconnected');
         } catch (e: unknown) {
+            if (e instanceof SessionKeyAuthenticationError) {
+                logger.debug(`[OfflineReconnection] ${e.code}: stopping retries`);
+                config.onNotify(`${e.code}: ${e.message}`);
+                return;
+            }
             // Check for permanent errors that shouldn't be retried
             // 401 = auth token invalid, user needs to re-authenticate
             if (isAuthenticationError(e)) {

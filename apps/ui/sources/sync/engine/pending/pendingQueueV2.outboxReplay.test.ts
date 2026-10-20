@@ -27,6 +27,7 @@ import {
 import {
     buildSession,
     createPendingQueueEncryption,
+    permitPlainPendingForScope,
     resetPendingQueueState,
     withExactPendingEnqueueAckIdentityForTest,
 } from './pendingQueueV2.testHelpers';
@@ -57,6 +58,9 @@ describe('pendingQueueV2 durable outbox', () => {
 
     beforeEach(() => {
         resetPendingQueueState();
+        permitPlainPendingForScope(targetScope);
+        permitPlainPendingForScope(otherScope);
+        permitPlainPendingForScope({ serverId: 'server-a', accountId: 'account-a' });
     });
 
     it('does not send or release the composer when browser durable custody fails', async () => {

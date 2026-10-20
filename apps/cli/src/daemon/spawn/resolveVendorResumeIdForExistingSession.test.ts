@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Credentials } from '@/persistence';
-import { encryptStoredSessionPayload, resolveSessionEncryptionContextFromCredentials } from '@/session/transport/encryption/sessionEncryptionContext';
+import { buildSessionKeyBindingMetadataField } from '@happier-dev/protocol';
+import { encryptStoredSessionPayload } from '@/session/transport/encryption/sessionEncryptionContext';
+import { resolveSessionEncryptionContext } from '@/api/client/encryptionKey';
+import { encodeBase64 } from '@/api/encryption';
 
 import { resolveVendorResumeIdForExistingSession } from './resolveVendorResumeIdForExistingSession';
 
@@ -25,17 +28,22 @@ describe('resolveVendorResumeIdForExistingSession', () => {
       },
     };
 
-    const ctx = resolveSessionEncryptionContextFromCredentials(credentials);
+    const ctx = resolveSessionEncryptionContext(credentials, 'tag');
     const ciphertext = encryptStoredSessionPayload({
       mode: 'e2ee',
       ctx,
-      payload: { flavor: 'codex', codexSessionId: 'vendor-e2ee-1' },
+      payload: {
+        flavor: 'codex',
+        codexSessionId: 'vendor-e2ee-1',
+        ...buildSessionKeyBindingMetadataField({ sessionId: 'session-1', sessionTag: 'tag' }),
+      },
     });
 
     const rawSession = {
+      id: 'session-1',
       encryptionMode: 'e2ee',
       metadata: ciphertext,
-      dataEncryptionKey: null,
+      dataEncryptionKey: encodeBase64(ctx.dataEncryptionKey!),
     };
 
     expect(resolveVendorResumeIdForExistingSession({ backendTarget: { kind: 'builtInAgent', agentId: 'codex' }, credentials, rawSession })).toBe('vendor-e2ee-1');

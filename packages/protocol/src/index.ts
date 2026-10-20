@@ -1241,6 +1241,18 @@ export {
   sealEncryptedDataKeyEnvelopeV1,
 } from './crypto/encryptedDataKeyEnvelopeV1.js';
 export {
+  SESSION_KEY_BINDING_METADATA_FIELD,
+  SessionKeyBindingV1Schema,
+  buildSessionKeyBindingMetadataField,
+  openOwnerSessionDataKeyEnvelope,
+  readSessionKeyBindingV1,
+  sealOwnerSessionDataKeyEnvelope,
+  SessionKeyAuthenticationError,
+  SessionKeyBindingPendingError,
+  verifySessionKeyBindingV1,
+  type SessionKeyBindingV1,
+} from './crypto/ownerSessionDataKeyEnvelope.js';
+export {
   parsePublicShareEncryptedDataKeyEnvelopeV0,
   PUBLIC_SHARE_DATA_ENCRYPTION_KEY_BYTES,
   PUBLIC_SHARE_ENCRYPTED_DATA_KEY_CURRENT_V0_BYTES,

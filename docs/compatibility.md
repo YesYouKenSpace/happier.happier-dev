@@ -398,6 +398,32 @@ readers at `server-v0.2.16` and `server-v0.2.16-preview.1`
 the switch, but cannot record its new provenance. The missing-marker recovery
 therefore requires an updated relay. Browser clients do not send this header.
 
+### Authenticated owner-session cutover (fork development)
+
+The yesyoukenspace fork explicitly selected a strict client cutover for
+[authenticated session DEKs](encryption.md#authenticated-owner-session-keys), rather than continued
+anonymous-envelope compatibility. This is development source, not an upstream release claim.
+
+- Updated clients accept tag-bound authenticated owner envelopes plus an ID binding inside
+  DEK-encrypted metadata. Existing anonymous owner and encrypted direct-share envelopes are
+  unsupported, not automatic migration sources. Stored data and shares remain intact.
+- Legacy clients cannot open the new owner format. All participating owner clients and daemons
+  must be updated for new sessions; restoring the same account content key permits cross-device opens.
+- No relay change is required: the stock create/load, by-ID, and metadata-patch routes already
+  carry everything the contract needs, and the ID binding is published through the existing
+  metadata update. A decryptable row that has not yet published its binding (the short
+  create→patch window, or a relay replaying pre-binding metadata) is retryable pending, not a
+  usable context. Older relays remain wire-compatible; updated clients fail closed against
+  substituted rows rather than downgrading.
+- Local `require_e2ee` remains enforced independently of relay storage-mode claims. Explicitly
+  permitted plaintext sessions retain their separate contract.
+- Machine, artifact, and transfer envelopes retain their existing formats. Public links have a
+  separate protocol and are not authenticated owner-session envelopes.
+
+Tests use current real client/server source with synthetic accounts, including rejected historical
+anonymous envelopes. They do not certify deployed mixed-version combinations. No stored-session
+migration or 0.3 disposition is claimed without its own trusted source and destination evidence.
+
 ### Account-pool quota-reset opt-in (development)
 
 `autoUseQuotaResetsWhenExhausted` is optional in the V1 pool policy; absence means

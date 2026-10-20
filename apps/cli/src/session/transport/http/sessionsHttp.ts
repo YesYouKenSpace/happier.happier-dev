@@ -12,15 +12,23 @@ import {
   V2SessionMessageResponseSchema,
   SessionTurnsProjectionV1Schema,
   type SessionTurnsProjectionV1,
+  SessionKeyAuthenticationError,
+  SessionKeyBindingPendingError,
+  buildSessionKeyBindingMetadataField,
 } from '@happier-dev/protocol';
 
 import type { Credentials } from '@/persistence';
 import { resolveSessionEncryptionContext } from '@/api/client/encryptionKey';
 import { resolveSessionStoredContentEncryptionMode } from '@/session/transport/encryption/sessionEncryptionContext';
+import { assertSessionEncryptionModeAllowedByEffectiveClientRequirement } from '@/settings/accountSettings/resolveEffectiveClientEncryptionRequirement';
+import {
+  decryptOwnerSessionMetadataRecord,
+  verifyOwnerSessionKeyBinding,
+} from '@/session/transport/encryption/sessionKeyBinding';
+import { openSessionDataEncryptionKey } from '@/api/client/openSessionDataEncryptionKey';
 import { createHttpStatusError, isAuthenticationStatus } from '@/api/client/httpStatusError';
 import { encodeBase64, encrypt } from '@/api/encryption';
 import { resolveSessionCreateEncryptionMode } from '@/api/session/resolveSessionCreateEncryptionMode';
-import { assertSessionEncryptionModeAllowedByEffectiveClientRequirement } from '@/settings/accountSettings/resolveEffectiveClientEncryptionRequirement';
 import { configuration } from '@/configuration';
 import { resolveServerHttpBaseUrl } from './serverHttpBaseUrl';
 import {
@@ -145,7 +153,9 @@ export async function fetchSessionById(params: Readonly<{ token: string; session
     throwUnexpectedHttpStatusError(response.status, `Unexpected status from /v2/sessions/${params.sessionId}: ${response.status}`);
   }
 
-  return parseOrThrow<V2SessionByIdResponse>(V2SessionByIdResponseSchema, response.data, 'Unexpected /v2/sessions response shape').session;
+  const session = parseOrThrow<V2SessionByIdResponse>(V2SessionByIdResponseSchema, response.data, 'Unexpected /v2/sessions response shape').session;
+  if (session.id !== params.sessionId) throw new SessionKeyAuthenticationError();
+  return session;
 }
 
 function looksLikeMissingV2SessionRoute404(data: unknown, sessionId: string): boolean {
@@ -189,7 +199,9 @@ export async function fetchSessionByIdCompat(params: Readonly<{ token: string; s
     throwUnexpectedHttpStatusError(response.status, `Unexpected status from /v2/sessions/${params.sessionId}: ${response.status}`);
   }
 
-  return parseOrThrow<V2SessionByIdResponse>(V2SessionByIdResponseSchema, response.data, 'Unexpected /v2/sessions response shape').session;
+  const session = parseOrThrow<V2SessionByIdResponse>(V2SessionByIdResponseSchema, response.data, 'Unexpected /v2/sessions response shape').session;
+  if (session.id !== params.sessionId) throw new SessionKeyAuthenticationError();
+  return session;
 }
 
 export async function patchSessionMetadata(params: Readonly<{
@@ -258,6 +270,83 @@ export async function patchSessionMetadata(params: Readonly<{
   }
 
   throw new Error(`Unexpected /v2/sessions/${params.sessionId} patch response shape`);
+}
+
+/**
+ * Verify the session-ID binding, self-healing the short create→patch window or a relay
+ * replaying pre-binding metadata: any authenticated account-key holder may publish the
+ * binding, because its values are fully determined by the already-authenticated envelope
+ * and row. Lives beside patchSessionMetadata so the transport owner stays cycle-free.
+ */
+export async function ensureOwnerSessionKeyBinding(params: Readonly<{
+  token: string;
+  encryptionKey: Uint8Array;
+  encryptionVariant: 'legacy' | 'dataKey';
+  rawSession: Readonly<{ id: string; metadata: string; metadataVersion: number }>;
+  envelopeSessionTag: string;
+}>): Promise<Readonly<{
+  metadataRecord: Record<string, unknown>;
+  metadataCiphertext: string;
+  metadataVersion: number;
+}>> {
+  try {
+    const metadataRecord = verifyOwnerSessionKeyBinding({
+      encryptionKey: params.encryptionKey,
+      encryptionVariant: params.encryptionVariant,
+      rawSession: params.rawSession,
+      envelopeSessionTag: params.envelopeSessionTag,
+    });
+    return {
+      metadataRecord,
+      metadataCiphertext: params.rawSession.metadata,
+      metadataVersion: params.rawSession.metadataVersion,
+    };
+  } catch (error) {
+    if (!(error instanceof SessionKeyBindingPendingError)) throw error;
+  }
+
+  const record = decryptOwnerSessionMetadataRecord({
+    encryptionKey: params.encryptionKey,
+    encryptionVariant: params.encryptionVariant,
+    metadataBase64: params.rawSession.metadata,
+  });
+  if (!record) throw new SessionKeyAuthenticationError();
+  const nextRecord = {
+    ...record,
+    ...buildSessionKeyBindingMetadataField({
+      sessionId: params.rawSession.id,
+      sessionTag: params.envelopeSessionTag,
+    }),
+  };
+  const ciphertext = encodeBase64(
+    encrypt(params.encryptionKey, params.encryptionVariant, nextRecord),
+    'base64',
+  );
+  const result = await patchSessionMetadata({
+    token: params.token,
+    sessionId: params.rawSession.id,
+    ciphertext,
+    expectedVersion: params.rawSession.metadataVersion,
+  });
+  if (result.success) {
+    return { metadataRecord: nextRecord, metadataCiphertext: ciphertext, metadataVersion: result.version };
+  }
+  // A concurrent writer won the version race; genuine writers publish identical values,
+  // so verify the current row instead of looping.
+  const current = result.current;
+  if (typeof current.value !== 'string' || !current.value.trim()) {
+    throw new SessionKeyBindingPendingError();
+  }
+  return {
+    metadataRecord: verifyOwnerSessionKeyBinding({
+      encryptionKey: params.encryptionKey,
+      encryptionVariant: params.encryptionVariant,
+      rawSession: { id: params.rawSession.id, metadata: current.value },
+      envelopeSessionTag: params.envelopeSessionTag,
+    }),
+    metadataCiphertext: current.value,
+    metadataVersion: current.version,
+  };
 }
 
 export async function fetchSessionsPage(params: Readonly<{
@@ -395,7 +484,7 @@ export async function getOrCreateSessionByTag(params: Readonly<{
     serverBaseUrl: serverUrl,
   });
 
-  const { encryptionKey, encryptionVariant, dataEncryptionKey } = resolveSessionEncryptionContext(params.credentials);
+  const { encryptionKey, encryptionVariant, dataEncryptionKey } = resolveSessionEncryptionContext(params.credentials, params.tag);
 
   const metadataPayload =
     desiredSessionEncryptionMode === 'plain'
@@ -446,11 +535,34 @@ export async function getOrCreateSessionByTag(params: Readonly<{
   assertSessionEncryptionModeAllowedByEffectiveClientRequirement(
     resolveSessionStoredContentEncryptionMode(parsed.session),
   );
-  // The current server marks whether this atomic create-or-load call created
-  // the row. Older responses omit the additive field; treat that as unknown
-  // rather than claiming ownership of a row that might predate this attempt.
+  let session: RawSessionRecord = parsed.session;
+  if (resolveSessionStoredContentEncryptionMode(parsed.session) === 'e2ee') {
+    const opened = openSessionDataEncryptionKey({
+      credential: params.credentials,
+      expectedSessionTag: params.tag,
+      encryptedDataEncryptionKeyBase64: parsed.session.dataEncryptionKey,
+    });
+    if (!opened) throw new SessionKeyAuthenticationError();
+    // Self-heals the create→patch binding window; returns the row with the published binding.
+    const ensured = await ensureOwnerSessionKeyBinding({
+      token: params.credentials.token,
+      encryptionKey: opened.dataKey,
+      encryptionVariant: 'dataKey',
+      rawSession: {
+        id: parsed.session.id,
+        metadata: parsed.session.metadata,
+        metadataVersion: parsed.session.metadataVersion,
+      },
+      envelopeSessionTag: opened.sessionTag,
+    });
+    session = {
+      ...parsed.session,
+      metadata: ensured.metadataCiphertext,
+      metadataVersion: ensured.metadataVersion,
+    };
+  }
   return {
-    session: parsed.session,
+    session,
     created: (parsed as Readonly<{ resolution?: unknown }>).resolution === 'created',
   };
 }

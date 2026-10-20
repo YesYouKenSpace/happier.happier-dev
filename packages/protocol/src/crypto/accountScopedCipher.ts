@@ -16,7 +16,8 @@ export type AccountScopedBlobKind =
   | 'session_first_intent'
   | 'session_respawn_environment'
   | 'action_operation_snapshot'
-  | 'account_session_draft_private_payload';
+  | 'account_session_draft_private_payload'
+  | 'owner_session_data_key';
 
 export type AccountScopedCryptoMaterial =
   | Readonly<{ type: 'legacy'; secret: Uint8Array }>
@@ -49,6 +50,7 @@ const ACCOUNT_SCOPED_KIND_BYTE: Record<AccountScopedBlobKind, number> = {
   session_first_intent: 8,
   action_operation_snapshot: 9,
   account_session_draft_private_payload: 10,
+  owner_session_data_key: 11,
 };
 
 const LEGACY_READ_ONLY_ACCOUNT_SCOPED_BLOB_KINDS = new Set<AccountScopedBlobKind>([

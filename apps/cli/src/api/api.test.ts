@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ApiClient, MachineReplacedError } from './api';
 import axios from 'axios';
+import { configuration } from '@/configuration';
 import { connectionState } from '@/api/offline/serverConnectionErrors';
 import { createEnvKeyScope } from '@/testkit/env/envScope';
 import { captureConsoleText } from '@/testkit/logger/captureOutput';
@@ -39,6 +40,24 @@ vi.mock('@/ui/logger', () => ({
 
 vi.mock('@/features/serverFeaturesClient', () => ({
     fetchServerFeaturesSnapshot: fetchServerFeaturesSnapshotMock,
+}));
+
+// The tests below verify request formation, timeouts, and error classification —
+// not key establishment. The owning contract for envelope opening and binding
+// publication is covered with real crypto in api.sessionDataEncryptionKey.test.ts.
+vi.mock('./client/openSessionDataEncryptionKey', () => ({
+    openSessionDataEncryptionKey: vi.fn(() => ({
+        sessionTag: 'test-tag',
+        dataKey: new Uint8Array(32),
+    })),
+}));
+vi.mock('@/session/transport/http/sessionsHttp', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/session/transport/http/sessionsHttp')>()),
+    ensureOwnerSessionKeyBinding: vi.fn(async () => ({
+        metadataRecord: testMetadata,
+        metadataCiphertext: 'ciphertext',
+        metadataVersion: 1,
+    })),
 }));
 
 vi.mock('@/daemon/machineIdentity/machineReplacementCandidates', () => ({
@@ -101,9 +120,13 @@ describe('Api server error handling', () => {
         'HAPPIER_SERVER_URL',
     ] as const;
     let envScope = createEnvKeyScope(envKeys);
+    // These cases verify request formation and error classification, not encryption
+    // policy; pin the permissive requirement so they run under the fork default too.
+    const previousRequirement = configuration.clientEncryptionRequirement;
 
     beforeEach(async () => {
         vi.clearAllMocks();
+        Object.assign(configuration, { clientEncryptionRequirement: 'follow_account' });
         connectionState.reset(); // Reset offline state between tests
         mockGet.mockRejectedValue({ response: { status: 404 } });
 
@@ -130,6 +153,7 @@ describe('Api server error handling', () => {
     });
 
     afterEach(() => {
+        Object.assign(configuration, { clientEncryptionRequirement: previousRequirement });
         envScope.restore();
         envScope = createEnvKeyScope(envKeys);
     });

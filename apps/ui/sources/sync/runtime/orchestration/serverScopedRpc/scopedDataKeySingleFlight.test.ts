@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { Encryption } from '@/sync/encryption/encryption';
+import { sealBoundSessionRowFixture, sealSessionDataKeyFixture } from '@/dev/testkit/fixtures/sessionEncryption';
 
 import {
     resetScopedMachineDataKeyCacheForTests,
@@ -24,25 +26,30 @@ function reachabilityOk() {
     return { ok: true, status: 200, json: async () => ({}) };
 }
 
-function sessionByIdBody(sessionId: string, dataEncryptionKey: string) {
+function sessionByIdBody(session: Readonly<{ id: string; dataEncryptionKey: string; metadata: string }>) {
     return {
         session: {
-            id: sessionId,
+            id: session.id,
             seq: 1,
             createdAt: 1,
             updatedAt: 1,
             active: true,
             activeAt: 1,
             archivedAt: null,
-            metadata: 'metadata',
+            metadata: session.metadata,
             metadataVersion: 1,
             agentState: null,
             agentStateVersion: 0,
             pendingCount: 0,
             pendingVersion: 0,
-            dataEncryptionKey,
+            dataEncryptionKey: session.dataEncryptionKey,
         },
     };
+}
+
+async function boundRow(encryption: Encryption, sessionId: string, dataKey: Uint8Array) {
+    const bound = await sealBoundSessionRowFixture({ encryption, sessionId, dataKey, metadata: { path: '/repo' } });
+    return { id: sessionId, ...bound };
 }
 
 function countCalls(match: string): number {
@@ -52,7 +59,6 @@ function countCalls(match: string): number {
 describe('scoped data-key resolution coalesces concurrent callers', () => {
     afterEach(async () => {
         delete process.env.EXPO_PUBLIC_HAPPIER_SCOPED_RPC_MACHINE_KEY_CACHE_MAX;
-        delete process.env.EXPO_PUBLIC_HAPPIER_SCOPED_RPC_SESSION_KEY_CACHE_MAX;
         runtimeFetchMock.mockReset();
         resetScopedMachineDataKeyCacheForTests();
         resetScopedSessionDataKeyCacheForTests();
@@ -181,29 +187,34 @@ describe('scoped data-key resolution coalesces concurrent callers', () => {
         expect(machineListCalls).toBe(2);
     });
 
-    it('opens the session data-key envelope once for concurrent scoped session callers', async () => {
+    it('coalesces HTTP reads for concurrent scoped session callers', async () => {
+        const encryption = await Encryption.create(new Uint8Array(32).fill(7));
+        const dataKey = new Uint8Array(32).fill(9);
+        const bound = await boundRow(encryption, 'session-1', dataKey);
         runtimeFetchMock.mockImplementation(async (input: unknown) => {
             if (isReachabilityProbe(input)) return reachabilityOk();
-            return { ok: true, status: 200, json: async () => sessionByIdBody('session-1', 'k1') };
+            return { ok: true, status: 200, json: async () => sessionByIdBody(bound) };
         });
-        const decrypt = vi.fn(async () => new Uint8Array([9, 9]));
 
         const results = await Promise.all(Array.from({ length: 6 }, () => resolveScopedSessionDataKey({
             serverId: 's-id',
             serverUrl: 'https://server.example.test',
             token: 'token',
             sessionId: 'session-1',
-            decryptEncryptionKey: decrypt,
+            encryption,
         })));
 
         for (const result of results) {
-            expect(result).toEqual(new Uint8Array([9, 9]));
+            expect(result).toEqual(dataKey);
         }
-        expect(decrypt).toHaveBeenCalledTimes(1);
         expect(countCalls('/v2/sessions/session-1')).toBe(1);
     });
 
     it('keeps concurrent session keys separate per session id', async () => {
+        const encryption = await Encryption.create(new Uint8Array(32).fill(7));
+        const keys = [new Uint8Array(32).fill(1), new Uint8Array(32).fill(2)];
+        const rows = await Promise.all(keys.map((dataKey, index) =>
+            boundRow(encryption, `session-${index + 1}`, dataKey)));
         runtimeFetchMock.mockImplementation(async (input: unknown) => {
             if (isReachabilityProbe(input)) return reachabilityOk();
             const url = String(input ?? '');
@@ -211,19 +222,16 @@ describe('scoped data-key resolution coalesces concurrent callers', () => {
             return {
                 ok: true,
                 status: 200,
-                json: async () => sessionByIdBody(sessionId, sessionId === 'session-2' ? 'k2' : 'k1'),
+                json: async () => sessionByIdBody(rows[sessionId === 'session-2' ? 1 : 0]!),
             };
         });
-        const decrypt = vi.fn(async (value: string) => (
-            value === 'k2' ? new Uint8Array([2]) : new Uint8Array([1])
-        ));
 
         const request = (sessionId: string) => resolveScopedSessionDataKey({
             serverId: 's-id',
             serverUrl: 'https://server.example.test',
             token: 'token',
             sessionId,
-            decryptEncryptionKey: decrypt,
+            encryption,
         });
 
         const [a, b, c, d] = await Promise.all([
@@ -233,11 +241,33 @@ describe('scoped data-key resolution coalesces concurrent callers', () => {
             request('session-2'),
         ]);
 
-        expect(a).toEqual(new Uint8Array([1]));
-        expect(c).toEqual(new Uint8Array([1]));
-        expect(b).toEqual(new Uint8Array([2]));
-        expect(d).toEqual(new Uint8Array([2]));
-        expect(decrypt).toHaveBeenCalledTimes(2);
+        expect(a).toEqual(keys[0]);
+        expect(c).toEqual(keys[0]);
+        expect(b).toEqual(keys[1]);
+        expect(d).toEqual(keys[1]);
+    });
+
+    it('authenticates coalesced session reads separately for each account secret', async () => {
+        const encryption = await Encryption.create(new Uint8Array(32).fill(7));
+        const other = await Encryption.create(new Uint8Array(32).fill(8));
+        const dataKey = new Uint8Array(32).fill(9);
+        const bound = await boundRow(encryption, 'session-1', dataKey);
+        runtimeFetchMock.mockImplementation(async (input: unknown) => {
+            if (isReachabilityProbe(input)) return reachabilityOk();
+            return { ok: true, status: 200, json: async () => sessionByIdBody(bound) };
+        });
+        const resolveSession = (encryption: Encryption) => resolveScopedSessionDataKey({
+            serverId: 'server-1',
+            serverUrl: 'https://server.example.test',
+            token: 'session-token',
+            sessionId: 'session-1',
+            encryption,
+        });
+
+        const [valid, invalid] = await Promise.allSettled([resolveSession(encryption), resolveSession(other)]);
+        expect(valid).toMatchObject({ status: 'fulfilled', value: dataKey });
+        expect(invalid).toMatchObject({ status: 'rejected', reason: { code: 'SESSION_KEY_AUTHENTICATION_FAILED' } });
+        expect(countCalls('/v2/sessions/session-1')).toBe(1);
     });
 
     it('keeps machine token eviction from invalidating the session cache identity', async () => {
@@ -256,7 +286,7 @@ describe('scoped data-key resolution coalesces concurrent callers', () => {
             };
         });
         const decrypt = vi.fn(async () => new Uint8Array([1]));
-        const resolveSession = () => resolveScopedSessionDataKey({
+        const resolveEvictionSession = () => resolveScopedSessionDataKey({
             serverId: 'server-1',
             serverUrl: 'https://server.example.test',
             token: 'session-token',
@@ -264,7 +294,7 @@ describe('scoped data-key resolution coalesces concurrent callers', () => {
             decryptEncryptionKey: decrypt,
         });
 
-        await resolveSession();
+        await resolveEvictionSession();
         for (const token of ['machine-token-a', 'machine-token-b']) {
             await resolveScopedMachineEncryptionContext({
                 serverId: 'server-1',
@@ -274,7 +304,7 @@ describe('scoped data-key resolution coalesces concurrent callers', () => {
                 decryptEncryptionKey: decrypt,
             });
         }
-        await resolveSession();
+        await resolveEvictionSession();
 
         expect(countCalls('/v2/sessions/session-1')).toBe(1);
     });

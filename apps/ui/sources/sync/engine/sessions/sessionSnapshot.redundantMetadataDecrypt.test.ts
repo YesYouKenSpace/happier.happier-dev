@@ -152,7 +152,8 @@ function createEncryptionHarness(counter: { count: number }): SessionListEncrypt
         },
     };
     return {
-        decryptEncryptionKeys: vi.fn(async (values: readonly string[]) => values.map(() => null)),
+        decryptSessionEncryptionKeys: async (rows) => rows.map(() => null),
+        hasSessionEncryptionKey: () => true,
         initializeSessions: vi.fn(async () => {}),
         removeSessionEncryption: vi.fn(),
         getSessionEncryption: vi.fn(() => sessionEncryption),

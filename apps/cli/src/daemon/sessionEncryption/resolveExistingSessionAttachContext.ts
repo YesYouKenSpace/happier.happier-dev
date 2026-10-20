@@ -14,7 +14,7 @@ import {
 import { fetchSessionByIdCompat } from '@/session/transport/http/sessionsHttp';
 import type { SessionSnapshotRefreshReasonInput } from '@/api/session/sessionSnapshotRefreshReason';
 import { tryParseJsonRecord } from '@/utils/tryParseJsonRecord';
-import type { BackendTargetRefV1 } from '@happier-dev/protocol';
+import { SessionKeyAuthenticationError, SessionKeyBindingPendingError, type BackendTargetRefV1 } from '@happier-dev/protocol';
 import { isSessionEncryptionModeAllowedByEffectiveClientRequirement } from '@/settings/accountSettings/resolveEffectiveClientEncryptionRequirement';
 
 export type ExistingSessionAttachContext = Readonly<{
@@ -162,6 +162,7 @@ export async function resolveExistingSessionAttachContext(_params: Readonly<{
       credentials: _params.credentials,
     });
   } catch (error) {
+    if (error instanceof SessionKeyAuthenticationError || error instanceof SessionKeyBindingPendingError) throw error;
     if (isAuthenticationError(error)) return { ok: false, reason: 'notAuthenticated' };
     return { ok: false, reason: 'fetchFailed' };
   }

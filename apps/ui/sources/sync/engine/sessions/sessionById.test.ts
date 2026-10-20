@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { fetchAndApplySessionById, type SessionByIdEncryption } from './sessionById';
+import { fetchAndApplySessionById } from './sessionById';
+import { Encryption } from '@/sync/encryption/encryption';
+import { sealSessionDataKeyFixture, withSessionKeyBindingForTests } from '@/dev/testkit/fixtures/sessionEncryption';
+import { encodeBase64 } from '@/encryption/base64';
+import { createFakeCryptoWorker } from '@/sync/encryption/nativeCryptoWorker/fakeCryptoWorker';
 
 const onAgentRequest = vi.fn();
 
@@ -22,6 +26,51 @@ function createDeferred<T>(): {
 }
 
 describe('fetchAndApplySessionById', () => {
+  it.each(['authenticated', 'legacy-owner', 'legacy-share', 'missing', 'transplant', 'response-id'] as const)(
+    'authenticates %s at the requested HTTP session boundary', async (kind) => {
+      const encryption = await Encryption.create(new Uint8Array(32).fill(7));
+      const dataKey = new Uint8Array(32).fill(9);
+      const sessionId = 'authenticated-owner';
+      const envelope = kind.startsWith('legacy')
+        ? encodeBase64(await encryption.encryptEncryptionKey(dataKey), 'base64')
+        : kind === 'missing' ? null : sealSessionDataKeyFixture({ encryption, dataKey });
+      await encryption.initializeSessions(new Map([[sessionId, dataKey]]));
+      // A transplanted row carries another session's ID binding inside otherwise valid ciphertext.
+      const metadata = await encryption.getSessionEncryption(sessionId)!.encryptRaw(
+        withSessionKeyBindingForTests({ path: '/trusted' }, {
+          sessionId: kind === 'transplant' ? 'different-session' : sessionId,
+        }),
+      );
+      const sessionDataKeys = new Map([[sessionId, dataKey]]);
+      const sessionDataKeyEnvelopes = new Map([[sessionId, 'replaced-envelope']]);
+      const applySessions = vi.fn();
+      const request = vi.fn(async () => new Response(JSON.stringify({ session: {
+        id: kind === 'response-id' ? 'different-session' : sessionId,
+        seq: 1, createdAt: 1, updatedAt: 1, active: true, activeAt: 1,
+        metadata, metadataVersion: 1, agentState: null, agentStateVersion: 0,
+        dataEncryptionKey: envelope,
+        share: kind === 'legacy-share' ? { accessLevel: 'admin', canApprovePermissions: true } : null,
+      } }), { status: 200 }));
+      const result = await fetchAndApplySessionById({
+        sessionId, encryption, sessionDataKeys, sessionDataKeyEnvelopes, request, applySessions,
+        credentials: { token: 'synthetic-token', secret: '' }, log: { log: () => {} },
+        includeTurnsProjection: false, clientEncryptionRequirement: 'require_e2ee',
+      });
+      if (kind === 'authenticated') {
+        expect(result.ok).toBe(true);
+        expect(result.session?.metadata?.path).toBe('/trusted');
+        expect(sessionDataKeys.get(sessionId)).toEqual(dataKey);
+      } else {
+        expect(result).toMatchObject({ ok: false, session: null, errorCode: 'SESSION_KEY_AUTHENTICATION_FAILED' });
+        expect(sessionDataKeys.size).toBe(0);
+        expect(sessionDataKeyEnvelopes.size).toBe(0);
+        expect(encryption.getSessionEncryption(sessionId)).toBeNull();
+        expect(applySessions).not.toHaveBeenCalled();
+      }
+      expect(request).toHaveBeenCalledTimes(1);
+    },
+  );
+
   it('refuses a plaintext session before parsing or applying it when this client requires E2EE', async () => {
     const applySessions = vi.fn();
     const request = vi.fn(async () => new Response(JSON.stringify({
@@ -45,11 +94,7 @@ describe('fetchAndApplySessionById', () => {
     const result = await fetchAndApplySessionById({
       sessionId: 's_plain_blocked',
       credentials: { token: 'token', secret: 'secret' },
-      encryption: {
-        decryptEncryptionKey: async () => null,
-        initializeSessions: async () => {},
-        getSessionEncryption: () => null,
-      },
+      encryption: await Encryption.create(new Uint8Array(32).fill(7)),
       sessionDataKeys: new Map(),
       request,
       applySessions,
@@ -90,11 +135,7 @@ describe('fetchAndApplySessionById', () => {
       sessionId: 's_targeted_hydration',
       clientEncryptionRequirement: 'follow_account' as const,
       credentials: { token: 'token', secret: 'secret' },
-      encryption: {
-        decryptEncryptionKey: async () => null,
-        initializeSessions: async () => {},
-        getSessionEncryption: () => null,
-      },
+      encryption: await Encryption.create(new Uint8Array(32).fill(7)),
       sessionDataKeys: new Map<string, Uint8Array>(),
       request,
       applySessions,
@@ -131,16 +172,12 @@ describe('fetchAndApplySessionById', () => {
       },
     }), { status: 200 }));
 
-    const getSessionEncryption = vi.fn(() => null);
+    const encryption = await Encryption.create(new Uint8Array(32).fill(7));
     const result = await fetchAndApplySessionById({
       sessionId: 's_legacy_payload',
       clientEncryptionRequirement: 'follow_account' as const,
       credentials: { token: 't', secret: 's' },
-      encryption: {
-        decryptEncryptionKey: async () => null,
-        initializeSessions: async () => {},
-        getSessionEncryption,
-      },
+      encryption,
       sessionDataKeys: new Map<string, Uint8Array>(),
       request,
       applySessions,
@@ -155,7 +192,7 @@ describe('fetchAndApplySessionById', () => {
         canApprovePermissions: true,
       }),
     ]);
-    expect(getSessionEncryption).not.toHaveBeenCalled();
+    expect(encryption.getSessionEncryption('s_legacy_payload')).toBeNull();
   });
 
   it('falls back to scanning /v2/sessions when the single-session route is missing', async () => {
@@ -201,11 +238,7 @@ describe('fetchAndApplySessionById', () => {
       sessionId: 's_legacy',
       clientEncryptionRequirement: 'follow_account' as const,
       credentials: { token: 't', secret: 's' },
-      encryption: {
-        decryptEncryptionKey: async () => null,
-        initializeSessions: async () => {},
-        getSessionEncryption: () => null,
-      },
+      encryption: await Encryption.create(new Uint8Array(32).fill(7)),
       sessionDataKeys: new Map<string, Uint8Array>(),
       request,
       applySessions,
@@ -236,11 +269,7 @@ describe('fetchAndApplySessionById', () => {
       sessionId: 's_missing',
       clientEncryptionRequirement: 'follow_account' as const,
       credentials: { token: 't', secret: 's' },
-      encryption: {
-        decryptEncryptionKey: async () => null,
-        initializeSessions: async () => {},
-        getSessionEncryption: () => null,
-      },
+      encryption: await Encryption.create(new Uint8Array(32).fill(7)),
       sessionDataKeys: new Map<string, Uint8Array>(),
       request,
       applySessions,
@@ -268,11 +297,7 @@ describe('fetchAndApplySessionById', () => {
       sessionId: 's_auth_failed',
       clientEncryptionRequirement: 'follow_account' as const,
       credentials: { token: 't' } as any,
-      encryption: {
-        decryptEncryptionKey: async () => null,
-        initializeSessions: async () => {},
-        getSessionEncryption: () => null,
-      },
+      encryption: await Encryption.create(new Uint8Array(32).fill(7)),
       sessionDataKeys: new Map<string, Uint8Array>(),
       request,
       applySessions,
@@ -322,11 +347,7 @@ describe('fetchAndApplySessionById', () => {
       sessionId: 's1',
       clientEncryptionRequirement: 'follow_account' as const,
       credentials: { token: 't' } as any,
-      encryption: {
-        decryptEncryptionKey: async () => null,
-        initializeSessions: async () => {},
-        getSessionEncryption: () => null,
-      },
+      encryption: await Encryption.create(new Uint8Array(32).fill(7)),
       sessionDataKeys: new Map<string, Uint8Array>(),
       request,
       applySessions,
@@ -395,11 +416,7 @@ describe('fetchAndApplySessionById', () => {
       sessionId: 's1',
       clientEncryptionRequirement: 'follow_account' as const,
       credentials: { token: 't' } as any,
-      encryption: {
-        decryptEncryptionKey: async () => null,
-        initializeSessions: async () => {},
-        getSessionEncryption: () => null,
-      },
+      encryption: await Encryption.create(new Uint8Array(32).fill(7)),
       sessionDataKeys: new Map<string, Uint8Array>(),
       request,
       applySessions: ([nextSession]) => {
@@ -421,9 +438,7 @@ describe('fetchAndApplySessionById', () => {
   it('applies a plaintext session row by id', async () => {
     onAgentRequest.mockReset();
     const applySessions = vi.fn();
-    const decryptEncryptionKey = vi.fn(async () => null);
-    const initializeSessions = vi.fn(async () => {});
-    const getSessionEncryption = vi.fn(() => null);
+    const encryption = await Encryption.create(new Uint8Array(32).fill(7));
 
     const responseJson = {
       session: {
@@ -453,11 +468,7 @@ describe('fetchAndApplySessionById', () => {
       sessionId: 's1',
       clientEncryptionRequirement: 'follow_account' as const,
       credentials: { token: 't' } as any,
-      encryption: {
-        decryptEncryptionKey,
-        initializeSessions,
-        getSessionEncryption,
-      },
+      encryption,
       sessionDataKeys,
       request,
       applySessions,
@@ -465,9 +476,7 @@ describe('fetchAndApplySessionById', () => {
     });
 
     expect(request).toHaveBeenCalledWith('/v2/sessions/s1', expect.any(Object));
-    expect(decryptEncryptionKey).not.toHaveBeenCalled();
-    expect(initializeSessions).not.toHaveBeenCalled();
-    expect(getSessionEncryption).not.toHaveBeenCalled();
+    expect(encryption.getSessionEncryption('s1')).toBeNull();
     expect(applySessions).toHaveBeenCalledWith([
       expect.objectContaining({
         id: 's1',
@@ -533,11 +542,7 @@ describe('fetchAndApplySessionById', () => {
       sessionId: 's1',
       clientEncryptionRequirement: 'follow_account' as const,
       credentials: { token: 't' } as any,
-      encryption: {
-        decryptEncryptionKey: async () => null,
-        initializeSessions: async () => {},
-        getSessionEncryption: () => null,
-      },
+      encryption: await Encryption.create(new Uint8Array(32).fill(7)),
       sessionDataKeys: new Map<string, Uint8Array>(),
       request,
       applySessions,
@@ -592,11 +597,7 @@ describe('fetchAndApplySessionById', () => {
       sessionId: 's1',
       clientEncryptionRequirement: 'follow_account' as const,
       credentials: { token: 't' } as any,
-      encryption: {
-        decryptEncryptionKey: async () => null,
-        initializeSessions: async () => {},
-        getSessionEncryption: () => null,
-      },
+      encryption: await Encryption.create(new Uint8Array(32).fill(7)),
       sessionDataKeys: new Map<string, Uint8Array>(),
       request,
       applySessions,
@@ -640,11 +641,7 @@ describe('fetchAndApplySessionById', () => {
       clientEncryptionRequirement: 'follow_account' as const,
       serverId: 'server-owned',
       credentials: { token: 't' } as any,
-      encryption: {
-        decryptEncryptionKey: async () => null,
-        initializeSessions: async () => {},
-        getSessionEncryption: () => null,
-      },
+      encryption: await Encryption.create(new Uint8Array(32).fill(7)),
       sessionDataKeys: new Map<string, Uint8Array>(),
       request,
       applySessions,
@@ -662,10 +659,15 @@ describe('fetchAndApplySessionById', () => {
   it('initializes session encryption when dataEncryptionKey is present', async () => {
     onAgentRequest.mockReset();
     const applySessions = vi.fn();
-    const decryptEncryptionKey = vi.fn(async () => new Uint8Array([1, 2, 3]));
-    const initializeSessions = vi.fn(async () => {});
-    const decryptMetadata = vi.fn(async () => ({ readStateV1: null }));
-    const decryptAgentState = vi.fn(async () => ({ controlledByUser: true }));
+    const encryption = await Encryption.create(new Uint8Array(32).fill(7));
+    const dataKey = new Uint8Array(32).fill(9);
+    const envelope = sealSessionDataKeyFixture({ encryption, dataKey });
+    const writer = await encryption.openEncryption(dataKey);
+    const [metadata, agentState] = (await writer.encrypt([
+      withSessionKeyBindingForTests({ path: '/repo' }, { sessionId: 's1' }),
+      { controlledByUser: true },
+    ]))
+      .map((bytes) => encodeBase64(bytes, 'base64'));
 
     const request = vi.fn(async () => new Response(JSON.stringify({
       session: {
@@ -676,11 +678,11 @@ describe('fetchAndApplySessionById', () => {
         active: true,
         activeAt: 2,
         encryptionMode: 'e2ee',
-        dataEncryptionKey: 'dek',
+        dataEncryptionKey: envelope,
         metadataVersion: 1,
-        metadata: 'enc-meta',
+        metadata,
         agentStateVersion: 1,
-        agentState: 'enc-state',
+        agentState,
         share: null,
       },
     }), { status: 200 }));
@@ -691,31 +693,30 @@ describe('fetchAndApplySessionById', () => {
       sessionId: 's1',
       clientEncryptionRequirement: 'follow_account' as const,
       credentials: { token: 't', secret: 's' },
-      encryption: {
-        decryptEncryptionKey,
-        initializeSessions,
-        getSessionEncryption: () => ({ decryptMetadata, decryptAgentState }),
-      } satisfies SessionByIdEncryption,
+      encryption,
       sessionDataKeys,
       request,
       applySessions,
       log: { log: () => {} },
     });
 
-    expect(decryptEncryptionKey).toHaveBeenCalledWith('dek');
-    expect(initializeSessions).toHaveBeenCalledWith(new Map([['s1', new Uint8Array([1, 2, 3])]]));
-    expect(sessionDataKeys.get('s1')).toEqual(new Uint8Array([1, 2, 3]));
-    expect(decryptMetadata).toHaveBeenCalledWith(1, 'enc-meta');
-    expect(decryptAgentState).toHaveBeenCalledWith(1, 'enc-state');
+    expect(sessionDataKeys.get('s1')).toEqual(dataKey);
+    expect(applySessions).toHaveBeenCalledWith([expect.objectContaining({
+      metadata: expect.objectContaining({ path: '/repo' }), agentState: { controlledByUser: true },
+    })]);
   });
 
   it('reuses a cached session data key when the encrypted envelope is unchanged', async () => {
     const applySessions = vi.fn();
-    const decryptEncryptionKey = vi.fn(async () => new Uint8Array([1, 2, 3]));
-    const initializeSessions = vi.fn(async () => {});
-    const decryptMetadata = vi.fn(async () => ({ readStateV1: null }));
-    const decryptAgentState = vi.fn(async () => ({ controlledByUser: true }));
-    const cachedKey = new Uint8Array([7, 7, 7]);
+    const encryption = await Encryption.create(new Uint8Array(32).fill(7));
+    const cachedKey = new Uint8Array(32).fill(9);
+    const envelope = sealSessionDataKeyFixture({ encryption, dataKey: cachedKey });
+    await encryption.initializeSessions(new Map([['s_cached', cachedKey]]));
+    const sessionEncryption = encryption.getSessionEncryption('s_cached')!;
+    const metadata = await sessionEncryption.encryptRaw(
+      withSessionKeyBindingForTests({ path: '/repo' }, { sessionId: 's_cached' }),
+    );
+    const agentState = await sessionEncryption.encryptRaw({ controlledByUser: true });
 
     const request = vi.fn(async () => new Response(JSON.stringify({
       session: {
@@ -726,27 +727,23 @@ describe('fetchAndApplySessionById', () => {
         active: true,
         activeAt: 2,
         encryptionMode: 'e2ee',
-        dataEncryptionKey: 'cached-envelope',
+        dataEncryptionKey: envelope,
         metadataVersion: 1,
-        metadata: 'enc-meta',
+        metadata,
         agentStateVersion: 1,
-        agentState: 'enc-state',
+        agentState,
         share: null,
       },
     }), { status: 200 }));
 
     const sessionDataKeys = new Map<string, Uint8Array>([['s_cached', cachedKey]]);
-    const sessionDataKeyEnvelopes = new Map<string, string>([['s_cached', 'cached-envelope']]);
+    const sessionDataKeyEnvelopes = new Map<string, string>([['s_cached', envelope]]);
 
     await fetchAndApplySessionById({
       sessionId: 's_cached',
       clientEncryptionRequirement: 'follow_account' as const,
       credentials: { token: 't', secret: 's' },
-      encryption: {
-        decryptEncryptionKey,
-        initializeSessions,
-        getSessionEncryption: () => ({ decryptMetadata, decryptAgentState }),
-      } satisfies SessionByIdEncryption,
+      encryption,
       sessionDataKeys,
       sessionDataKeyEnvelopes,
       request,
@@ -754,14 +751,13 @@ describe('fetchAndApplySessionById', () => {
       log: { log: () => {} },
     });
 
-    expect(decryptEncryptionKey).not.toHaveBeenCalled();
-    expect(initializeSessions).toHaveBeenCalledWith(new Map([['s_cached', cachedKey]]));
+    expect(encryption.getSessionEncryption('s_cached')).toBe(sessionEncryption);
     expect(sessionDataKeys.get('s_cached')).toBe(cachedKey);
-    expect(sessionDataKeyEnvelopes.get('s_cached')).toBe('cached-envelope');
+    expect(sessionDataKeyEnvelopes.get('s_cached')).toBe(envelope);
     expect(applySessions).toHaveBeenCalledWith([
       expect.objectContaining({
         id: 's_cached',
-        metadata: { readStateV1: null },
+        metadata: expect.objectContaining({ path: '/repo' }),
         agentState: { controlledByUser: true },
       }),
     ]);
@@ -769,10 +765,25 @@ describe('fetchAndApplySessionById', () => {
 
   it('starts encrypted metadata and agent-state decrypts before awaiting either result', async () => {
     const applySessions = vi.fn();
-    const metadataDeferred = createDeferred<{ readStateV1: null }>();
-    const agentStateDeferred = createDeferred<{ controlledByUser: true }>();
-    const decryptMetadata = vi.fn(async () => metadataDeferred.promise);
-    const decryptAgentState = vi.fn(async () => agentStateDeferred.promise);
+    const encryption = await Encryption.create(new Uint8Array(32).fill(7));
+    const dataKey = new Uint8Array(32).fill(9);
+    const envelope = sealSessionDataKeyFixture({ encryption, dataKey });
+    const writer = await encryption.openEncryption(dataKey);
+    const [metadata, agentState] = (await writer.encrypt([
+      withSessionKeyBindingForTests({ path: '/repo' }, { sessionId: 's_parallel' }),
+      { controlledByUser: true },
+    ]))
+      .map((bytes) => encodeBase64(bytes, 'base64'));
+    const worker = createFakeCryptoWorker();
+    const gate = createDeferred<void>();
+    const decryptAesGcmJson = vi.fn(async (request: Parameters<typeof worker.decryptAesGcmJson>[0]) => {
+      await gate.promise;
+      return worker.decryptAesGcmJson(request);
+    });
+    encryption.configureNativeCryptoWorker({
+      worker: { ...worker, decryptAesGcmJson },
+      routing: { mode: 'require', minPayloadBytes: 0, minBatchSize: 1 },
+    });
 
     const request = vi.fn(async () => new Response(JSON.stringify({
       session: {
@@ -783,11 +794,11 @@ describe('fetchAndApplySessionById', () => {
         active: true,
         activeAt: 2,
         encryptionMode: 'e2ee',
-        dataEncryptionKey: 'dek',
+        dataEncryptionKey: envelope,
         metadataVersion: 1,
-        metadata: 'enc-meta',
+        metadata,
         agentStateVersion: 1,
-        agentState: 'enc-state',
+        agentState,
         share: null,
       },
     }), { status: 200 }));
@@ -796,11 +807,7 @@ describe('fetchAndApplySessionById', () => {
       sessionId: 's_parallel',
       clientEncryptionRequirement: 'follow_account' as const,
       credentials: { token: 't', secret: 's' },
-      encryption: {
-        decryptEncryptionKey: async () => new Uint8Array([1, 2, 3]),
-        initializeSessions: async () => {},
-        getSessionEncryption: () => ({ decryptMetadata, decryptAgentState }),
-      } satisfies SessionByIdEncryption,
+      encryption,
       sessionDataKeys: new Map<string, Uint8Array>(),
       request,
       applySessions,
@@ -808,20 +815,16 @@ describe('fetchAndApplySessionById', () => {
     });
 
     try {
-      await expect.poll(() => ({
-        metadata: decryptMetadata.mock.calls.length,
-        agentState: decryptAgentState.mock.calls.length,
-      }), { timeout: 100 }).toEqual({ metadata: 1, agentState: 1 });
+      await expect.poll(() => decryptAesGcmJson.mock.calls.flatMap(([request]) => request.items).length).toBe(2);
     } finally {
-      metadataDeferred.resolve({ readStateV1: null });
-      agentStateDeferred.resolve({ controlledByUser: true });
+      gate.resolve();
       await fetchPromise;
     }
 
     expect(applySessions).toHaveBeenCalledWith([
       expect.objectContaining({
         id: 's_parallel',
-        metadata: { readStateV1: null },
+        metadata: expect.objectContaining({ path: '/repo' }),
         agentState: { controlledByUser: true },
       }),
     ]);
@@ -860,11 +863,7 @@ describe('fetchAndApplySessionById', () => {
       throw new Error(`unexpected path ${path}`);
     });
 
-    const encryption = {
-      decryptEncryptionKey: async () => null,
-      initializeSessions: async () => {},
-      getSessionEncryption: () => null,
-    } satisfies SessionByIdEncryption;
+    const encryption = await Encryption.create(new Uint8Array(32).fill(7));
     const baseParams = {
       sessionId: 's_coalesced',
       clientEncryptionRequirement: 'follow_account' as const,
@@ -925,11 +924,7 @@ describe('fetchAndApplySessionById', () => {
       throw new Error(`unexpected path ${path}`);
     });
 
-    const encryption = {
-      decryptEncryptionKey: async () => null,
-      initializeSessions: async () => {},
-      getSessionEncryption: () => null,
-    } satisfies SessionByIdEncryption;
+    const encryption = await Encryption.create(new Uint8Array(32).fill(7));
     const baseParams = {
       sessionId: 's_scoped_coalesced',
       clientEncryptionRequirement: 'follow_account' as const,
@@ -1000,11 +995,7 @@ describe('fetchAndApplySessionById', () => {
       sessionId: 's_shell_only',
       clientEncryptionRequirement: 'follow_account' as const,
       credentials: { token: 't', secret: 's' },
-      encryption: {
-        decryptEncryptionKey: async () => null,
-        initializeSessions: async () => {},
-        getSessionEncryption: () => null,
-      },
+      encryption: await Encryption.create(new Uint8Array(32).fill(7)),
       sessionDataKeys: new Map<string, Uint8Array>(),
       request,
       applySessions: vi.fn(),

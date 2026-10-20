@@ -41,7 +41,11 @@ describe('SessionEncryption metadata in-flight dedupe', () => {
         await expect(sessionEncryption.decryptMetadata(2, encrypted)).resolves.toEqual(metadata);
     });
     it('shares concurrent metadata decrypts for the same session version and ciphertext', async () => {
-        const metadata = { path: '/repo', host: 'machine' };
+        const metadata = {
+            path: '/repo',
+            host: 'machine',
+            sessionKeyBindingV1: { v: 1, sessionId: 'session-1', sessionTag: 'test-session-tag' },
+        };
         let releaseDecrypt: () => void = () => {};
         const decryptBase64 = vi.fn<Base64DecryptFn>(async () => {
             await new Promise<void>((resolve) => {
@@ -87,7 +91,11 @@ describe('SessionEncryption metadata in-flight dedupe', () => {
     });
 
     it('retries metadata decrypt after an in-flight decrypt rejects', async () => {
-        const metadata = { path: '/repo', host: 'machine' };
+        const metadata = {
+            path: '/repo',
+            host: 'machine',
+            sessionKeyBindingV1: { v: 1, sessionId: 'session-1', sessionTag: 'test-session-tag' },
+        };
         const decryptBase64 = vi
             .fn<Base64DecryptFn>()
             .mockRejectedValueOnce(new Error('decrypt failed'))
@@ -134,8 +142,16 @@ describe('SessionEncryption metadata in-flight dedupe', () => {
     });
 
     it('does not share metadata decrypts across session encryption instances', async () => {
-        const firstMetadata = { path: '/repo-a', host: 'machine-a' };
-        const secondMetadata = { path: '/repo-b', host: 'machine-b' };
+        const firstMetadata = {
+            path: '/repo-a',
+            host: 'machine-a',
+            sessionKeyBindingV1: { v: 1, sessionId: 'session-1', sessionTag: 'test-session-tag' },
+        };
+        const secondMetadata = {
+            path: '/repo-b',
+            host: 'machine-b',
+            sessionKeyBindingV1: { v: 1, sessionId: 'session-1', sessionTag: 'test-session-tag' },
+        };
         const firstDecryptBase64 = vi.fn<Base64DecryptFn>(async () => [firstMetadata]);
         const secondDecryptBase64 = vi.fn<Base64DecryptFn>(async () => [secondMetadata]);
         const firstSessionEncryption = new SessionEncryption(

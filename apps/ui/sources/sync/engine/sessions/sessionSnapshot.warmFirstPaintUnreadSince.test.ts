@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { AuthCredentials } from '@/auth/storage/tokenStorage';
+import { Encryption } from '@/sync/encryption/encryption';
 import {
     buildSessionListRenderableFromSession,
     type SessionListRenderableSession,
@@ -11,7 +12,7 @@ import type { SessionListCacheEntryV1 } from '@/sync/domains/state/warmCachePers
 import { syncPerformanceTelemetry } from '@/sync/runtime/syncPerformanceTelemetry';
 import type { V2SessionRecord } from '@happier-dev/protocol';
 
-import { fetchAndApplySessions, type SessionListEncryption } from './sessionSnapshot';
+import { fetchAndApplySessions } from './sessionSnapshot';
 
 /**
  * Voice announcements are a genuine side-effect boundary reached by the hydrated
@@ -96,15 +97,6 @@ function jsonResponse(body: unknown): Response {
     });
 }
 
-function createEncryptionHarness(): SessionListEncryption {
-    return {
-        decryptEncryptionKeys: vi.fn(async (values: readonly string[]) => values.map(() => null)),
-        initializeSessions: vi.fn(async () => {}),
-        removeSessionEncryption: vi.fn(),
-        getSessionEncryption: vi.fn(() => null),
-    };
-}
-
 type SnapshotRun = Readonly<{
     firstPaintRenderable: SessionListRenderableSession;
     hydratedRenderable: SessionListRenderableSession;
@@ -116,7 +108,7 @@ async function runSessionListSnapshot(): Promise<SnapshotRun> {
 
     await fetchAndApplySessions({
         credentials: { token: 't', secret: 's' } as AuthCredentials,
-        encryption: createEncryptionHarness(),
+        encryption: await Encryption.create(new Uint8Array(32).fill(7)),
         sessionDataKeys: new Map<string, Uint8Array>(),
         request: async () => jsonResponse({
             sessions: [buildUnreadPlainRow()],

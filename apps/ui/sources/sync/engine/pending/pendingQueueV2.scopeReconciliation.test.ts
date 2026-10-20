@@ -17,7 +17,7 @@ import {
     retryPendingOutboxOperationV2 as retryPendingOutboxOperationV2Impl,
     updatePendingRequestedActionV2 as updatePendingRequestedActionV2Impl,
 } from './pendingQueueV2';
-import { buildSession, resetPendingQueueState, withExactPendingEnqueueAckIdentityForTest } from './pendingQueueV2.testHelpers';
+import { buildSession, permitPlainPendingForScope, resetPendingQueueState, withExactPendingEnqueueAckIdentityForTest } from './pendingQueueV2.testHelpers';
 
 const enqueuePendingMessageV2 = (
     params: Omit<Parameters<typeof enqueuePendingMessageV2Impl>[0], 'wireMode'>,
@@ -91,6 +91,7 @@ describe('pendingQueueV2 scoped refresh reconciliation', () => {
         const sessionId = 'awaited-scope-refresh-session';
         const server = upsertServerProfile({ serverUrl: 'https://awaited-scope.example.test', name: 'Awaited scope' });
         const scope = { serverId: server.id, accountId: 'account' } as const;
+        permitPlainPendingForScope(scope);
         storage.getState().applySessions([{ ...buildSession({ sessionId }), encryptionMode: 'plain' }]);
         let releaseOlderScopeCheck!: () => void;
         const olderScopeCheck = new Promise<boolean>((resolve) => {
@@ -141,6 +142,8 @@ describe('pendingQueueV2 scoped refresh reconciliation', () => {
         const serverB = upsertServerProfile({ serverUrl: 'https://transition-b.example.test', name: 'B' });
         const scopeA = { serverId: serverA.id, accountId: 'account-a' } as const;
         const scopeB = { serverId: serverB.id, accountId: 'account-b' } as const;
+        permitPlainPendingForScope(scopeA);
+        permitPlainPendingForScope(scopeB);
         storage.getState().applySessions([{ ...buildSession({ sessionId }), encryptionMode: 'plain' }]);
         setActiveServerId(serverA.id, { scope: 'tab' });
         storage.getState().activateProfileScope(scopeA);
@@ -172,6 +175,7 @@ describe('pendingQueueV2 scoped refresh reconciliation', () => {
         const localId = 'local-only-local';
         const server = upsertServerProfile({ serverUrl: 'https://local-only.example.test', name: 'Local only' });
         const scope = { serverId: server.id, accountId: 'account' } as const;
+        permitPlainPendingForScope(scope);
         storage.getState().applySessions([{ ...buildSession({ sessionId }), encryptionMode: 'plain' }]);
         setActiveServerId(server.id, { scope: 'tab' });
         storage.getState().activateProfileScope(scope);
@@ -204,6 +208,7 @@ describe('pendingQueueV2 scoped refresh reconciliation', () => {
         const localId = 'retained-outbox-external-overlap-local';
         const server = upsertServerProfile({ serverUrl: 'https://external-overlap.example.test', name: 'External overlap' });
         const scope = { serverId: server.id, accountId: 'account' } as const;
+        permitPlainPendingForScope(scope);
         storage.getState().applySessions([{ ...buildSession({ sessionId }), encryptionMode: 'plain' }]);
         setActiveServerId(server.id, { scope: 'tab' });
         storage.getState().activateProfileScope(scope);
@@ -241,6 +246,7 @@ describe('pendingQueueV2 scoped refresh reconciliation', () => {
         const localId = 'acknowledged-external-handoff-outbox-local';
         const server = upsertServerProfile({ serverUrl: 'https://acknowledged-external.example.test', name: 'Acknowledged external' });
         const scope = { serverId: server.id, accountId: 'account' } as const;
+        permitPlainPendingForScope(scope);
         storage.getState().applySessions([{ ...buildSession({ sessionId }), encryptionMode: 'plain' }]);
         setActiveServerId(server.id, { scope: 'tab' });
         storage.getState().activateProfileScope(scope);
@@ -277,6 +283,7 @@ describe('pendingQueueV2 scoped refresh reconciliation', () => {
         const localId = 'canonical-external-over-accepted-local-id';
         const server = upsertServerProfile({ serverUrl: 'https://canonical-external.example.test', name: 'Canonical external' });
         const scope = { serverId: server.id, accountId: 'account' } as const;
+        permitPlainPendingForScope(scope);
         storage.getState().applySessions([{ ...buildSession({ sessionId }), encryptionMode: 'plain' }]);
         setActiveServerId(server.id, { scope: 'tab' });
         storage.getState().activateProfileScope(scope);
@@ -330,6 +337,7 @@ describe('pendingQueueV2 scoped refresh reconciliation', () => {
         const localId = 'server-handoff-cancel-dedup-local';
         const server = upsertServerProfile({ serverUrl: 'https://server-handoff-cancel.example.test', name: 'Server handoff cancel' });
         const scope = { serverId: server.id, accountId: 'account' } as const;
+        permitPlainPendingForScope(scope);
         storage.getState().applySessions([{ ...buildSession({ sessionId }), encryptionMode: 'plain' }]);
         setActiveServerId(server.id, { scope: 'tab' });
         storage.getState().activateProfileScope(scope);
@@ -381,6 +389,7 @@ describe('pendingQueueV2 scoped refresh reconciliation', () => {
         const localId = 'held-retry-canonical-handoff-local';
         const server = upsertServerProfile({ serverUrl: 'https://held-retry-handoff.example.test', name: 'Held retry handoff' });
         const scope = { serverId: server.id, accountId: 'account' } as const;
+        permitPlainPendingForScope(scope);
         storage.getState().applySessions([{ ...buildSession({ sessionId }), encryptionMode: 'plain' }]);
         setActiveServerId(server.id, { scope: 'tab' });
         storage.getState().activateProfileScope(scope);
@@ -450,6 +459,7 @@ describe('pendingQueueV2 scoped refresh reconciliation', () => {
         const localId = 'refresh-retirement-during-cancellation-helper-local';
         const server = upsertServerProfile({ serverUrl: 'https://refresh-cancellation-helper.example.test', name: 'Refresh cancellation helper' });
         const scope = { serverId: server.id, accountId: 'account' } as const;
+        permitPlainPendingForScope(scope);
         storage.getState().applySessions([{ ...buildSession({ sessionId }), encryptionMode: 'plain' }]);
         setActiveServerId(server.id, { scope: 'tab' });
         storage.getState().activateProfileScope(scope);
@@ -526,6 +536,7 @@ describe('pendingQueueV2 scoped refresh reconciliation', () => {
         const localId = 'initial-enqueue-refresh-retirement-during-cancellation-helper-local';
         const server = upsertServerProfile({ serverUrl: 'https://initial-enqueue-refresh-cancellation-helper.example.test', name: 'Initial enqueue refresh cancellation helper' });
         const scope = { serverId: server.id, accountId: 'account' } as const;
+        permitPlainPendingForScope(scope);
         storage.getState().applySessions([{ ...buildSession({ sessionId }), encryptionMode: 'plain' }]);
         setActiveServerId(server.id, { scope: 'tab' });
         storage.getState().activateProfileScope(scope);
@@ -612,6 +623,8 @@ describe('pendingQueueV2 scoped refresh reconciliation', () => {
             const localId = `late-cancellation-${caseId}-local`;
             const server = upsertServerProfile({ serverUrl: `https://${sessionId}.example.test`, name: sessionId });
             const scope = { serverId: server.id, accountId: 'account' } as const;
+            permitPlainPendingForScope(scope);
+        permitPlainPendingForScope(scope);
             storage.getState().applySessions([{ ...buildSession({ sessionId }), encryptionMode: 'plain' }]);
             setActiveServerId(server.id, { scope: 'tab' });
             storage.getState().activateProfileScope(scope);
@@ -697,6 +710,7 @@ describe('pendingQueueV2 scoped refresh reconciliation', () => {
         const localId = `retry-suppresses-older-${snapshotKind}-refresh-local`;
         const server = upsertServerProfile({ serverUrl: `https://retry-suppresses-${snapshotKind}-refresh.example.test`, name: `Retry suppresses ${snapshotKind} refresh` });
         const scope = { serverId: server.id, accountId: 'account' } as const;
+        permitPlainPendingForScope(scope);
         storage.getState().applySessions([{ ...buildSession({ sessionId }), encryptionMode: 'plain' }]);
         setActiveServerId(server.id, { scope: 'tab' });
         storage.getState().activateProfileScope(scope);
@@ -765,6 +779,7 @@ describe('pendingQueueV2 scoped refresh reconciliation', () => {
         const localId = 'retry-acceptance-before-unrelated-parse-local';
         const server = upsertServerProfile({ serverUrl: 'https://retry-acceptance-before-parse.example.test', name: 'Retry acceptance before parse' });
         const scope = { serverId: server.id, accountId: 'account' } as const;
+        permitPlainPendingForScope(scope);
         storage.getState().applySessions([{ ...buildSession({ sessionId }), encryptionMode: 'plain' }]);
         setActiveServerId(server.id, { scope: 'tab' });
         storage.getState().activateProfileScope(scope);
@@ -832,6 +847,8 @@ describe('pendingQueueV2 scoped refresh reconciliation', () => {
             const localId = `older-exact-canonical-after-${caseId}-local`;
             const server = upsertServerProfile({ serverUrl: `https://${sessionId}.example.test`, name: sessionId });
             const scope = { serverId: server.id, accountId: 'account' } as const;
+            permitPlainPendingForScope(scope);
+        permitPlainPendingForScope(scope);
             storage.getState().applySessions([{ ...buildSession({ sessionId }), encryptionMode: 'plain' }]);
             setActiveServerId(server.id, { scope: 'tab' });
             storage.getState().activateProfileScope(scope);
@@ -900,6 +917,7 @@ describe('pendingQueueV2 scoped refresh reconciliation', () => {
         const localIdB = `held-${coverage}-accepted-id-b`;
         const server = upsertServerProfile({ serverUrl: `https://${sessionId}.example.test`, name: sessionId });
         const scope = { serverId: server.id, accountId: 'account' } as const;
+        permitPlainPendingForScope(scope);
         storage.getState().applySessions([{ ...buildSession({ sessionId }), encryptionMode: 'plain' }]);
         setActiveServerId(server.id, { scope: 'tab' });
         storage.getState().activateProfileScope(scope);
@@ -971,6 +989,7 @@ describe('pendingQueueV2 scoped refresh reconciliation', () => {
         const unrelatedLocalId = 'retry-acceptance-during-unrelated-decrypt-other';
         const server = upsertServerProfile({ serverUrl: 'https://retry-acceptance-during-decrypt.example.test', name: 'Retry acceptance during decrypt' });
         const scope = { serverId: server.id, accountId: 'account' } as const;
+        permitPlainPendingForScope(scope);
         storage.getState().applySessions([{ ...buildSession({ sessionId }), encryptionMode: 'e2ee' }]);
         setActiveServerId(server.id, { scope: 'tab' });
         storage.getState().activateProfileScope(scope);
@@ -1034,6 +1053,7 @@ describe('pendingQueueV2 scoped refresh reconciliation', () => {
         const localId = 'older-authoritative-refresh-during-retry-local';
         const server = upsertServerProfile({ serverUrl: 'https://older-authoritative-refresh.example.test', name: 'Older authoritative refresh' });
         const scope = { serverId: server.id, accountId: 'account' } as const;
+        permitPlainPendingForScope(scope);
         storage.getState().applySessions([{ ...buildSession({ sessionId }), encryptionMode: 'e2ee' }]);
         setActiveServerId(server.id, { scope: 'tab' });
         storage.getState().activateProfileScope(scope);
@@ -1110,6 +1130,7 @@ describe('pendingQueueV2 scoped refresh reconciliation', () => {
         const localId = 'retry-failure-after-retirement-local';
         const server = upsertServerProfile({ serverUrl: `https://${sessionId}.example.test`, name: sessionId });
         const scope = { serverId: server.id, accountId: 'account' } as const;
+        permitPlainPendingForScope(scope);
         storage.getState().applySessions([{ ...buildSession({ sessionId }), encryptionMode: 'plain' }]);
         setActiveServerId(server.id, { scope: 'tab' });
         storage.getState().activateProfileScope(scope);
@@ -1221,6 +1242,7 @@ describe('pendingQueueV2 scoped refresh reconciliation', () => {
         const quarantinedLocalId = 'quarantined-durable-local-id';
         const server = upsertServerProfile({ serverUrl: 'https://quarantine-collision.example.test', name: 'Quarantine collision' });
         const scope = { serverId: server.id, accountId: 'account' } as const;
+        permitPlainPendingForScope(scope);
         storage.getState().applySessions([{ ...buildSession({ sessionId }), encryptionMode: 'plain' }]);
         setActiveServerId(server.id, { scope: 'tab' });
         storage.getState().activateProfileScope(scope);
@@ -1327,6 +1349,7 @@ describe('pendingQueueV2 scoped refresh reconciliation', () => {
         const localId = 'pending-collision-local';
         const server = upsertServerProfile({ serverUrl: 'https://pending.example.test', name: 'Pending' });
         const scope = { serverId: server.id, accountId: 'account' } as const;
+        permitPlainPendingForScope(scope);
         storage.getState().applySessions([{ ...buildSession({ sessionId }), encryptionMode: 'plain' }]);
         setActiveServerId(server.id, { scope: 'tab' });
         storage.getState().activateProfileScope(scope);
@@ -1357,6 +1380,7 @@ describe('pendingQueueV2 scoped refresh reconciliation', () => {
         const localId = 'discarded-collision-local';
         const server = upsertServerProfile({ serverUrl: 'https://discarded.example.test', name: 'Discarded' });
         const scope = { serverId: server.id, accountId: 'account' } as const;
+        permitPlainPendingForScope(scope);
         storage.getState().applySessions([{ ...buildSession({ sessionId }), encryptionMode: 'plain' }]);
         setActiveServerId(server.id, { scope: 'tab' });
         storage.getState().activateProfileScope(scope);
@@ -1406,6 +1430,7 @@ describe('pendingQueueV2 scoped refresh reconciliation', () => {
         const localId = 'discarded-enqueue-collision-local';
         const server = upsertServerProfile({ serverUrl: 'https://discarded-enqueue.example.test', name: 'Discarded enqueue' });
         const scope = { serverId: server.id, accountId: 'account' } as const;
+        permitPlainPendingForScope(scope);
         storage.getState().applySessions([{ ...buildSession({ sessionId }), encryptionMode: 'plain' }]);
         setActiveServerId(server.id, { scope: 'tab' });
         storage.getState().activateProfileScope(scope);
@@ -1433,6 +1458,7 @@ describe('pendingQueueV2 scoped refresh reconciliation', () => {
         const localId = 'conflicting-collision-local';
         const server = upsertServerProfile({ serverUrl: 'https://conflict.example.test', name: 'Conflict' });
         const scope = { serverId: server.id, accountId: 'account' } as const;
+        permitPlainPendingForScope(scope);
         storage.getState().applySessions([{ ...buildSession({ sessionId }), encryptionMode: 'plain' }]);
         setActiveServerId(server.id, { scope: 'tab' });
         storage.getState().activateProfileScope(scope);
@@ -1464,6 +1490,7 @@ describe('pendingQueueV2 scoped refresh reconciliation', () => {
         const localId = 'conflicting-row-disappears-local';
         const server = upsertServerProfile({ serverUrl: 'https://conflict-disappears.example.test', name: 'Conflict disappears' });
         const scope = { serverId: server.id, accountId: 'account' } as const;
+        permitPlainPendingForScope(scope);
         storage.getState().applySessions([{ ...buildSession({ sessionId }), encryptionMode: 'plain' }]);
         (await persist({ sessionId, localId, text: 'retained local custody', scope, operation: 'enqueue' }));
         const encryption = await Encryption.create(new Uint8Array(32).fill(15));
@@ -1493,6 +1520,7 @@ describe('pendingQueueV2 scoped refresh reconciliation', () => {
         const localId = 'malformed-server-identity-local';
         const server = upsertServerProfile({ serverUrl: 'https://malformed-row.example.test', name: 'Malformed row' });
         const scope = { serverId: server.id, accountId: 'account' } as const;
+        permitPlainPendingForScope(scope);
         storage.getState().applySessions([{ ...buildSession({ sessionId }), encryptionMode: 'plain' }]);
         (await persist({ sessionId, localId, text: 'must not replay', scope, operation: 'enqueue' }));
         const encryption = await Encryption.create(new Uint8Array(32).fill(14));
@@ -1529,6 +1557,7 @@ describe('pendingQueueV2 scoped refresh reconciliation', () => {
         const localId = 'delivery-mode-conflict-local';
         const server = upsertServerProfile({ serverUrl: 'https://delivery-mode.example.test', name: 'Delivery mode' });
         const scope = { serverId: server.id, accountId: 'account' } as const;
+        permitPlainPendingForScope(scope);
         const rawRecord = { role: 'user', content: { type: 'text', text: 'same content' }, meta: {} } as const;
         storage.getState().applySessions([{ ...buildSession({ sessionId }), encryptionMode: 'plain' }]);
         setActiveServerId(server.id, { scope: 'tab' });
@@ -1575,6 +1604,7 @@ describe('pendingQueueV2 scoped refresh reconciliation', () => {
         const localId = 'ordinary-external-conflict-local';
         const server = upsertServerProfile({ serverUrl: 'https://ordinary-external.example.test', name: 'Ordinary external' });
         const scope = { serverId: server.id, accountId: 'account' } as const;
+        permitPlainPendingForScope(scope);
         const text = 'same content';
         storage.getState().applySessions([{ ...buildSession({ sessionId }), encryptionMode: 'plain' }]);
         setActiveServerId(server.id, { scope: 'tab' });
@@ -1622,6 +1652,7 @@ describe('pendingQueueV2 scoped refresh reconciliation', () => {
         const localId = 'ciphertext-conflict-local';
         const server = upsertServerProfile({ serverUrl: 'https://ciphertext.example.test', name: 'Ciphertext' });
         const scope = { serverId: server.id, accountId: 'account' } as const;
+        permitPlainPendingForScope(scope);
         const rawRecord = { role: 'user', content: { type: 'text', text: 'same decrypted content' }, meta: {} } as const;
         const localCiphertext = 'local-frozen-ciphertext';
         const serverCiphertext = 'server-frozen-ciphertext';
@@ -1686,6 +1717,7 @@ describe('pendingQueueV2 scoped refresh reconciliation', () => {
         const localId = 'ambiguous-snapshot-local';
         const server = upsertServerProfile({ serverUrl: 'https://ambiguous.example.test', name: 'Ambiguous' });
         const scope = { serverId: server.id, accountId: 'account' } as const;
+        permitPlainPendingForScope(scope);
         storage.getState().applySessions([{ ...buildSession({ sessionId }), encryptionMode: 'plain' }]);
         setActiveServerId(server.id, { scope: 'tab' });
         storage.getState().activateProfileScope(scope);

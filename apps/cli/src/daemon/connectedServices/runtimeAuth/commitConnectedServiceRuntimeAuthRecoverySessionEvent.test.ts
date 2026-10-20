@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { configuration } from '@/configuration';
 import axios from 'axios';
 
 import { createEnvKeyScope } from '@/testkit/env/envScope';
@@ -6,6 +7,9 @@ import { createApiSessionSocketStub } from '@/testkit/backends/apiSessionSocketH
 import * as sessionSockets from '@/api/session/sockets';
 
 describe('commitConnectedServiceRuntimeAuthRecoverySessionEvent', () => {
+  const previousRequirement = configuration.clientEncryptionRequirement;
+  beforeEach(() => Object.assign(configuration, { clientEncryptionRequirement: 'follow_account' }));
+  afterEach(() => Object.assign(configuration, { clientEncryptionRequirement: previousRequirement }));
   it('persists the scheduler wait before acknowledging its visible event', async () => {
     process.env.HAPPIER_SERVER_URL = 'http://server.example.test';
     let metadata: Record<string, unknown> = { path: '/project', unrelated: true };

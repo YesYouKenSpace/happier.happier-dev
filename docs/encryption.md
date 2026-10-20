@@ -8,6 +8,11 @@ The encryption layouts below describe E2EE content. Plaintext Session storage is
 described separately under **Session storage modes**; the unreleased development
 Machine format is described under **Plain Machines (development)**.
 
+In this fork's development source, encrypted owner sessions use the
+[authenticated owner-key contract](#authenticated-owner-session-keys). The legacy selection and
+public-key envelopes below still describe older sessions and unchanged machine/artifact contracts;
+they are not an accepted fallback for updated owner-session clients.
+
 ## Overview
 
 ```mermaid
@@ -108,7 +113,68 @@ packet-beta
 
 - `version` is currently `0`.
 
+## Authenticated owner session keys
+
+**Status: development source, not released or device-certified.** The canonical owner is
+`packages/protocol/src/crypto/ownerSessionDataKeyEnvelope.ts`. Each encrypted session has a random
+32-byte AES-256-GCM DEK, including sessions created with legacy recovery-secret credentials.
+
+The owner envelope uses `accountScopedCipher.ts` with the dedicated `owner_session_data_key` kind.
+That owner derives a SecretBox key from the account content private key and a purpose-specific
+HMAC-SHA-512 label. Its wire layout is `[0xa1 | kind=11 | nonce(24) | authenticated ciphertext]`.
+The authenticated JSON payload contains `{ v: 1, sessionTag, dataKey }`, where `dataKey`
+is base64. The session opener rejects the generic account cipher's legacy-SecretBox compatibility
+result. Anonymous public-key envelopes are never accepted as owner envelopes.
+
+The session-ID binding lives inside the DEK-encrypted session metadata as `sessionKeyBindingV1:
+{ v: 1, sessionId, sessionTag }`, not in the envelope: the server assigns the row ID after the
+envelope is sealed, and stock relays neither accept client-chosen IDs nor expose the row tag on
+by-ID reads. The metadata ciphertext itself authenticates the binding under the envelope's key,
+so no relay change is required.
+
+Creation, loading, and resume use one contract:
+
+- The CLI generates a random DEK, binds the requested tag into the envelope, and submits `tag`
+  with the request to the stock `POST /v1/sessions` route. The server assigns the row ID.
+- After the create response, the creating client patches the returned row's metadata once to
+  publish the ID binding (same values for any concurrent genuine writer; the version guard
+  arbitrates). Loaders verify the binding instead of publishing it.
+- Every trusted use opens the envelope (account authentication plus expected tag when the
+  caller initiated by tag), decrypts the row metadata under the opened key, and requires the
+  binding to name the requested session ID and the envelope's tag. The relay's `resolution`
+  label and projected sharing flags are not proof of anything.
+- Exact-ID reads compare the returned row ID with the requested ID before opening the envelope.
+- UI owner hydration uses the shared JavaScript primitive with yielding batches; the metadata
+  decrypt step enforces the binding for every consumer. The old native V1 box opener remains
+  for other resource types and does not decide session-key authentication.
+
+Missing, malformed, anonymous, wrong-account, and wrong-context keys reject with
+`SESSION_KEY_AUTHENTICATION_FAILED`; CLI refusal is nonretryable. A decryptable row whose
+metadata does not yet carry the binding (the short create→patch window, or a relay replaying
+pre-binding metadata) surfaces as retryable `SESSION_KEY_BINDING_PENDING`, never as a usable
+context; loaders refetch and the creating client self-heals the row. New clients also reject
+current encrypted direct-share envelopes, regardless of relay-projected sharing permissions.
+Stored rows are not removed or automatically rewrapped. Collection views can retain inaccessible
+IDs without using their metadata; selected-session execution still requires authentication.
+
+Pre-cutover rows predate envelopes entirely: their metadata is encrypted directly under the
+account key. Updated clients still open these envelope-absent rows with the local account key,
+because only an account-key holder could have produced that ciphertext — a relay can replay
+but never forge it. A present-but-unopenable envelope never falls back this way. These legacy
+rows carry no ID binding, so same-account row substitution among them is not detectable;
+that residual is confined to pre-cutover data and documented here rather than fixed by
+rewriting history.
+
+This strict cutover requires updated clients but works against stock relays. See
+[fork policy and validation limits](yesyoukenspace/security-defaults.md#session-key-authentication)
+and [compatibility](compatibility.md#authenticated-owner-session-cutover-fork-development).
+Local `require_e2ee` is enforced separately at content/RPC issuance; an invalid key cannot authorize
+a plaintext downgrade. Authenticated keys do not establish freshness or protect a compromised endpoint.
+
 ## Data encryption key (dataKey variant)
+
+The anonymous envelope below remains the machine/artifact and historical session format. Updated
+fork owner-session readers instead require the authenticated format above.
 
 ```mermaid
 flowchart LR
@@ -358,6 +424,7 @@ POST /v1/sessions
 ```
 ```json
 {
+  "id": "<client-generated UUID; optional for older clients>",
   "tag": "<string>",
   "metadata": "<base64 encrypted>",
   "agentState": "<base64 encrypted or null>",

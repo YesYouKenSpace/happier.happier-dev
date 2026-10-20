@@ -54,6 +54,15 @@ Auth flows:
 - `GET /v1/sessions/:sessionId/messages`
 - `DELETE /v1/sessions/:sessionId`
 
+In current development source, updated fork clients call the stock `POST /v1/sessions` route
+unchanged and establish [authenticated session keys](encryption.md#authenticated-owner-session-keys)
+entirely client-side: an existing `(accountId, tag)` match returns the stored ID, metadata, and
+key, and the client verifies the account-authenticated envelope plus the ID binding inside the
+DEK-encrypted metadata before trusting them. The response's `resolution` field is not a
+client-side authentication proof. After creation the client publishes the ID binding with the
+existing `PATCH /v2/sessions/:sessionId` metadata route; no new route or schema change is needed.
+Unknown request fields continue to be ignored by older relays.
+
 ### Machines
 - `POST /v1/machines` (create or load by id)
 - `GET /v1/machines`

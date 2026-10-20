@@ -6,7 +6,7 @@ import { createTempDir, removeTempDir } from '@/testkit/fs/tempDir';
 import type { Credentials } from '@/persistence';
 
 describe('memoryWorker', () => {
-  const envBackup = snapshotEnvValues(['HAPPIER_HOME_DIR', 'HAPPIER_SERVER_URL', 'HAPPIER_WEBAPP_URL']);
+  const envBackup = snapshotEnvValues(['HAPPIER_HOME_DIR', 'HAPPIER_SERVER_URL', 'HAPPIER_WEBAPP_URL', 'HAPPIER_ENCRYPTION_REQUIREMENT']);
   let homeDir: string | undefined;
 
   beforeEach(async () => {
@@ -15,6 +15,7 @@ describe('memoryWorker', () => {
       HAPPIER_HOME_DIR: homeDir,
       HAPPIER_SERVER_URL: 'https://api.example.test',
       HAPPIER_WEBAPP_URL: 'https://app.example.test',
+      HAPPIER_ENCRYPTION_REQUIREMENT: 'follow_account',
     });
     vi.resetModules();
   });
@@ -461,7 +462,7 @@ describe('memoryWorker', () => {
   });
 
   it('paginates selected transcript rows for full light coverage instead of indexing only the latest window', async () => {
-    const fetchSessionById = vi.fn(async () => ({}));
+    const fetchSessionById = vi.fn(async () => ({ encryptionMode: 'plain' }));
     const fetchEncryptedTranscriptMessagesPage = vi.fn(async (args: { beforeSeq?: number; roles?: readonly string[] }) => {
       if (args.roles?.includes('user') && args.beforeSeq === undefined) {
         return {
@@ -593,7 +594,7 @@ describe('memoryWorker', () => {
   });
 
   it('logs retryable selected-transcript fetch failures through the shared server endpoint classifier', async () => {
-    const fetchSessionById = vi.fn(async () => ({}));
+    const fetchSessionById = vi.fn(async () => ({ encryptionMode: 'plain' }));
     const fetchSessionsPage = vi.fn(async () => ({ sessions: [], nextCursor: null, hasNext: false }));
     const maintenanceError = Object.assign(new Error('planned maintenance'), {
       response: { status: 503 },

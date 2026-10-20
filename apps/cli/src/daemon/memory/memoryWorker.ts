@@ -1,7 +1,7 @@
 import { chmodSync, mkdirSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { INSTALLABLE_KEYS } from '@happier-dev/protocol';
+import { INSTALLABLE_KEYS, SessionKeyAuthenticationError } from '@happier-dev/protocol';
 
 import type { Credentials } from '@/persistence';
 import { DEFAULT_MEMORY_SETTINGS, readMemorySettingsFromDisk, type MemorySettingsV1 } from '@/settings/memorySettings';
@@ -301,6 +301,7 @@ export async function startMemoryWorker(params: Readonly<{
           });
           return decrypted;
         } catch (error) {
+          if (error instanceof SessionKeyAuthenticationError) throw error;
           logMemoryWorkerServerEndpointFailure('transcript page', error);
           return [];
         }
@@ -357,6 +358,7 @@ export async function startMemoryWorker(params: Readonly<{
         nowMs: Date.now(),
       });
     } catch (error) {
+      if (error instanceof SessionKeyAuthenticationError) throw error;
       logMemoryWorkerServerEndpointFailure('selected transcript rows', error);
       return [];
     }
@@ -471,6 +473,7 @@ export async function startMemoryWorker(params: Readonly<{
             ctx,
           });
         } catch (error) {
+          if (error instanceof SessionKeyAuthenticationError) throw error;
           logMemoryWorkerServerEndpointFailure('summary system records', error);
           return [];
         }
@@ -492,6 +495,7 @@ export async function startMemoryWorker(params: Readonly<{
           if (!raw) return;
           ctx = resolveSessionEncryptionContextFromCredentials(params.credentials, raw);
           sessionCtxCache.set(sessionId, ctx);
+          sessionModeCache.set(sessionId, resolveSessionStoredContentEncryptionMode(raw));
         }
         const mode = sessionModeCache.get(sessionId) ?? 'e2ee';
         await commitMemorySystemRecords({

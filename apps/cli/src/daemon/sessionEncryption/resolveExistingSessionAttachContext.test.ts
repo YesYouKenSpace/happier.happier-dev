@@ -1,13 +1,11 @@
-import { createHash } from 'node:crypto';
-import tweetnacl from 'tweetnacl';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { decodeBase64, encodeBase64 } from '@/api/encryption';
 import { createHttpStatusError } from '@/api/client/httpStatusError';
-import { sealEncryptedDataKeyEnvelopeV1 } from '@happier-dev/protocol';
+import { buildSessionKeyBindingMetadataField, sealOwnerSessionDataKeyEnvelope } from '@happier-dev/protocol';
 
 import { createSessionRecordFixture } from '@/testkit/backends/sessionFixtures';
-import { encryptStoredSessionPayload, resolveSessionEncryptionContextFromCredentials } from '@/session/transport/encryption/sessionEncryptionContext';
+import { encryptStoredSessionPayload } from '@/session/transport/encryption/sessionEncryptionContext';
 
 vi.mock('@/session/transport/http/sessionsHttp', () => ({
   fetchSessionByIdCompat: vi.fn(async () => null),
@@ -32,7 +30,10 @@ function deterministicRandomBytesFactory(): (length: number) => Uint8Array {
 }
 
 describe('resolveExistingSessionAttachContext', () => {
+  const previousRequirement = configuration.clientEncryptionRequirement;
+  beforeEach(() => Object.assign(configuration, { clientEncryptionRequirement: 'follow_account' }));
   afterEach(() => {
+    Object.assign(configuration, { clientEncryptionRequirement: previousRequirement });
     vi.clearAllMocks();
   });
 
@@ -200,13 +201,12 @@ describe('resolveExistingSessionAttachContext', () => {
 
   it('returns a v2 e2ee attach payload with an opened DEK and vendorResumeId for encrypted sessions', async () => {
     const seed = new Uint8Array(32).fill(11);
-    const compatSecretKey = createHash('sha512').update(seed).digest().subarray(0, 32);
-    const recipientPublicKey = tweetnacl.box.keyPair.fromSecretKey(compatSecretKey).publicKey;
     const dataKey = new Uint8Array(32).fill(4);
 
-    const envelope = sealEncryptedDataKeyEnvelopeV1({
+    const envelope = sealOwnerSessionDataKeyEnvelope({
       dataKey,
-      recipientPublicKey,
+      material: { type: 'dataKey', machineKey: seed },
+      sessionTag: 'tag',
       randomBytes: deterministicRandomBytesFactory(),
     });
     const encryptedEnvelopeBase64 = encodeBase64(envelope, 'base64');
@@ -222,8 +222,12 @@ describe('resolveExistingSessionAttachContext', () => {
 
     const metadataCiphertext = encryptStoredSessionPayload({
       mode: 'e2ee',
-      ctx: resolveSessionEncryptionContextFromCredentials(credentials, { dataEncryptionKey: encryptedEnvelopeBase64 }),
-      payload: { flavor: 'codex', codexSessionId: 'vendor-e2ee-1' },
+      ctx: { encryptionKey: dataKey, encryptionVariant: 'dataKey' },
+      payload: {
+        flavor: 'codex',
+        codexSessionId: 'vendor-e2ee-1',
+        ...buildSessionKeyBindingMetadataField({ sessionId: 'sess_e2ee', sessionTag: 'tag' }),
+      },
     });
 
     vi.mocked(fetchSessionByIdCompat).mockResolvedValueOnce(

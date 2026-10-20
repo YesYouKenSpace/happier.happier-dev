@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { encodeBase64, encryptLegacy } from '@/api/encryption';
-import { createSessionRecordFixture } from '@/testkit/backends/sessionFixtures';
+import { createEncryptedSessionRecordFixture, createSessionRecordFixture } from '@/testkit/backends/sessionFixtures';
 import { summarizeSessionRow } from '@/cli/output/session/sessionSummary';
 
 describe('summarizeSessionRow', () => {
@@ -20,18 +19,19 @@ describe('summarizeSessionRow', () => {
   };
 
   it('adds system session fields when metadata includes systemSessionV1', () => {
-    const metadata = encodeBase64(encryptLegacy({
+    const metadata = {
       tag: 'MySession',
       systemSessionV1: {
         v: 1,
         key: 'voice_carrier',
         hidden: true,
       },
-    }, credentials.encryption.secret));
+    };
 
     const session = summarizeSessionRow({
       credentials,
-      row: createSessionRecordFixture({
+      row: createEncryptedSessionRecordFixture({
+        credentials,
         id: 'session-system',
         metadata,
         metadataVersion: 1,
@@ -43,10 +43,11 @@ describe('summarizeSessionRow', () => {
   });
 
   it('omits system session fields when metadata is missing systemSessionV1', () => {
-    const metadata = encodeBase64(encryptLegacy({ tag: 'MySession' }, credentials.encryption.secret));
+    const metadata = { tag: 'MySession' };
     const session = summarizeSessionRow({
       credentials,
-      row: createSessionRecordFixture({
+      row: createEncryptedSessionRecordFixture({
+        credentials,
         id: 'session-user',
         metadata,
         metadataVersion: 1,

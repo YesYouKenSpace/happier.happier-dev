@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { configuration } from '@/configuration';
 
 const fetchServerFeaturesSnapshotMock = vi.hoisted(() => vi.fn());
 const axiosGetMock = vi.hoisted(() => vi.fn());
@@ -10,9 +11,16 @@ vi.mock('@/features/serverFeaturesClient', () => ({
 vi.mock('axios', () => ({ default: { get: axiosGetMock } }));
 
 describe('resolveSessionCreateEncryptionMode', () => {
+  // Mode-selection mechanics, not encryption policy; run permissive under the fork default.
+  const previousRequirement = configuration.clientEncryptionRequirement;
   beforeEach(() => {
+    Object.assign(configuration, { clientEncryptionRequirement: 'follow_account' });
     fetchServerFeaturesSnapshotMock.mockReset();
     axiosGetMock.mockReset();
+  });
+
+  afterEach(() => {
+    Object.assign(configuration, { clientEncryptionRequirement: previousRequirement });
   });
 
   it('does not guess an encryption mode from a transient feature failure', async () => {

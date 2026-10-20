@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { configuration } from '@/configuration';
 
 import type { Credentials } from '@/persistence';
 
@@ -28,7 +29,10 @@ const SOURCE_HEAD_SEQ = 9;
 const ADMITTED_FORK_CUTOFF = 4;
 
 describe('buildReplaySeededSpawnRecipe', () => {
+  const previousRequirement = configuration.clientEncryptionRequirement;
+  afterEach(() => Object.assign(configuration, { clientEncryptionRequirement: previousRequirement }));
   beforeEach(() => {
+    Object.assign(configuration, { clientEncryptionRequirement: 'follow_account' });
     fetchSessionByIdCompat.mockReset();
     fetchEncryptedTranscriptMessagesPage.mockReset();
     fetchSessionByIdCompat.mockResolvedValue({

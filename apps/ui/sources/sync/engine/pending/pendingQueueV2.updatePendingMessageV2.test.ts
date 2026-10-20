@@ -15,6 +15,7 @@ import {
     buildSession,
     createPendingQueueEncryption,
     getSessionEncryptionOrThrow,
+    permitPlainPendingForScope,
     resetPendingQueueState,
 } from './pendingQueueV2.testHelpers';
 
@@ -30,6 +31,8 @@ const deletePendingMessageV2 = (
 describe('pendingQueueV2 updatePendingMessageV2', () => {
     beforeEach(() => {
         resetPendingQueueState();
+        permitPlainPendingForScope(outboxScope);
+        permitPlainPendingForScope(otherOutboxScope);
     });
 
     it('retires exact-scope enqueue custody after a successful PATCH', async () => {

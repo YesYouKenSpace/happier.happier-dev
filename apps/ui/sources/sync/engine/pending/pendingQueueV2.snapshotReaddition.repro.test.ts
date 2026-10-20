@@ -12,6 +12,7 @@ import {
 } from './pendingQueueV2';
 import {
     buildSession,
+    permitPlainPendingForScope,
     resetPendingQueueState,
     withExactPendingEnqueueAckIdentityForTest,
 } from './pendingQueueV2.testHelpers';
@@ -102,7 +103,9 @@ describe('pending snapshot re-addition after a committed twin', () => {
         // nothing until the transcript is a basis, so the loaded tail is part of the flap's shape.
         storage.getState().applyMessages(SESSION_ID, [committedTwin('readdition-loaded-tail', LOADED_HEAD_SEQ)]);
         storage.getState().applyMessagesLoaded(SESSION_ID);
-        return { serverId: server.id, accountId: 'account' } as const;
+        const scope = { serverId: server.id, accountId: 'account' } as const;
+        permitPlainPendingForScope(scope);
+        return scope;
     }
 
 

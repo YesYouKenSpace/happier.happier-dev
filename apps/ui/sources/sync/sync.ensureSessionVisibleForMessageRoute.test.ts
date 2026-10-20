@@ -79,6 +79,8 @@ import type { AccountSettingsScope } from './domains/settings/scope/accountSetti
 import type { Session } from './domains/state/storageTypes';
 import { encodeBase64 } from '@/encryption/base64';
 import { encodeUTF8 } from '@/encryption/text';
+import { Encryption } from '@/sync/encryption/encryption';
+import { sealSessionDataKeyFixture, withSessionKeyBindingForTests } from '@/dev/testkit/fixtures/sessionEncryption';
 
 const initialStorageState = storage.getState();
 
@@ -108,6 +110,20 @@ function buildTokenWithSub(sub: string): string {
     return `hdr.${payload}.sig`;
 }
 
+async function createSessionCrypto(sessionId: string) {
+    const encryption = await Encryption.create(new Uint8Array(32).fill(7));
+    const dataKey = new Uint8Array(32).fill(9);
+    const writer = await encryption.openEncryption(dataKey);
+    const [metadata, agentState] = (await writer.encrypt([
+        withSessionKeyBindingForTests({ path: '/repo', host: 'owner' }, { sessionId }),
+        { controlledByUser: true },
+    ]))
+        .map((bytes) => encodeBase64(bytes, 'base64'));
+    return { encryption, dataKey, row: {
+        dataEncryptionKey: sealSessionDataKeyFixture({ encryption, dataKey }), metadata, agentState,
+    } };
+}
+
 describe('sync.ensureSessionVisibleForMessageRoute', () => {
     beforeEach(async () => {
         storage.setState(initialStorageState, true);
@@ -119,6 +135,63 @@ describe('sync.ensureSessionVisibleForMessageRoute', () => {
 
         const { sync } = await import('./sync');
         sync.disconnectServer();
+    });
+
+    it.each(['legacy', 'secret-change'] as const)('revokes cached key exports after %s authentication failure', async (kind) => {
+        const { sync } = await import('./sync');
+        const encryption = await Encryption.create(new Uint8Array(32).fill(7));
+        const replacement = await Encryption.create(new Uint8Array(32).fill(8));
+        const sessionId = 'owner-authentication';
+        const dataKey = new Uint8Array(32).fill(9);
+        await encryption.initializeSessions(new Map([[sessionId, dataKey]]));
+        const metadata = await encryption.getSessionEncryption(sessionId)!.encryptRaw(
+            withSessionKeyBindingForTests({ path: '/trusted' }, { sessionId }),
+        );
+        const envelope = sealSessionDataKeyFixture({ encryption, dataKey });
+        const internals = sync as unknown as {
+            encryption: Encryption;
+            credentials: { token: string; secret: string };
+            sessionDataKeys: Map<string, Uint8Array>;
+            sessionDataKeyEnvelopes: Map<string, string>;
+        };
+        internals.encryption = encryption;
+        internals.credentials = { token: 'synthetic-token', secret: '' };
+        internals.sessionDataKeys.set(sessionId, dataKey);
+        internals.sessionDataKeyEnvelopes.set(sessionId, envelope);
+        const returnedEnvelope = kind === 'legacy'
+            ? encodeBase64(await encryption.encryptEncryptionKey(dataKey), 'base64') : envelope;
+        requestMock.mockImplementation(async () => {
+            if (kind === 'secret-change') internals.encryption = replacement;
+            return new Response(JSON.stringify({ session: {
+                id: sessionId, seq: 1, createdAt: 1, updatedAt: 1, active: true, activeAt: 1,
+                metadata, metadataVersion: 1, agentState: null, agentStateVersion: 0,
+                dataEncryptionKey: returnedEnvelope,
+            } }), { status: 200 });
+        });
+        const result = await sync.ensureSessionVisibleForMessageRoute(sessionId, { forceRefresh: true });
+        expect(result.kind).not.toBe('available');
+        expect(sync.getSessionDataKey(sessionId)).toBeNull();
+        expect(sync.getSessionEncryptionKeyBase64ForResume(sessionId)).toBeNull();
+        expect(internals.encryption.getSessionEncryption(sessionId)).toBeNull();
+        expect(internals.sessionDataKeys.has(sessionId)).toBe(false);
+    });
+
+    it('retires the active writer when a scoped hydration commits an invalidated key', async () => {
+        const { sync } = await import('./sync');
+        const crypto = await createSessionCrypto('owner');
+        await crypto.encryption.initializeSessions(new Map([['owner', crypto.dataKey]]));
+        const internals = sync as unknown as {
+            encryption: Encryption;
+            sessionDataKeys: Map<string, Uint8Array>;
+            sessionDataKeyEnvelopes: Map<string, string>;
+            commitSessionDataKeyCacheEntry: (id: string, keys: Map<string, Uint8Array>, envelopes: Map<string, string>) => void;
+        };
+        internals.encryption = crypto.encryption;
+        internals.sessionDataKeys.set('owner', crypto.dataKey);
+        internals.sessionDataKeyEnvelopes.set('owner', crypto.row.dataEncryptionKey);
+        internals.commitSessionDataKeyCacheEntry('owner', new Map(), new Map());
+        expect(crypto.encryption.getSessionEncryption('owner')).toBeNull();
+        expect(sync.getSessionDataKey('owner')).toBeNull();
     });
 
     it('hydrates e2ee session encryption on deep link before sessions snapshot fetch', async () => {
@@ -140,18 +213,8 @@ describe('sync.ensureSessionVisibleForMessageRoute', () => {
         syncInternals.activeServerSessionIds = new Set<string>();
         syncInternals.hasFetchedSessionsSnapshotForActiveServer = false;
 
-        let ready = false;
-        const decryptMetadata = vi.fn(async () => ({ readStateV1: null }));
-        const decryptAgentState = vi.fn(async () => ({ controlledByUser: true }));
-
-        syncInternals.encryption = {
-            decryptEncryptionKey: async () => new Uint8Array([1, 2, 3]),
-            initializeSessions: async () => {
-                ready = true;
-            },
-            getSessionEncryption: (_sessionId: string) =>
-                ready ? ({ decryptMetadata, decryptAgentState } as any) : null,
-        };
+        const crypto = await createSessionCrypto(sessionId);
+        syncInternals.encryption = crypto.encryption;
 
         requestMock.mockResolvedValue(
             new Response(
@@ -164,11 +227,9 @@ describe('sync.ensureSessionVisibleForMessageRoute', () => {
                         active: true,
                         activeAt: 2,
                         encryptionMode: 'e2ee',
-                        dataEncryptionKey: 'dek',
+                        ...crypto.row,
                         metadataVersion: 1,
-                        metadata: 'enc-meta',
                         agentStateVersion: 1,
-                        agentState: 'enc-state',
                         share: null,
                     },
                 }),
@@ -186,8 +247,8 @@ describe('sync.ensureSessionVisibleForMessageRoute', () => {
         );
         expect(sessionByIdCalls).toHaveLength(1);
         expect(syncInternals.activeServerSessionIds.has(sessionId)).toBe(true);
-        expect(syncInternals.sessionDataKeys.get(sessionId)).toEqual(new Uint8Array([1, 2, 3]));
-        expect(syncInternals.sessionDataKeyEnvelopes.get(sessionId)).toBe('dek');
+        expect(syncInternals.sessionDataKeys.get(sessionId)).toEqual(crypto.dataKey);
+        expect(syncInternals.sessionDataKeyEnvelopes.get(sessionId)).toBe(crypto.row.dataEncryptionKey);
     });
 
     it('returns a retryable result when credentials are not yet available', async () => {
@@ -558,40 +619,13 @@ describe('sync.ensureSessionVisibleForMessageRoute', () => {
         (sync as any).activeServerSessionIds = new Set<string>();
         (sync as any).hasFetchedSessionsSnapshotForActiveServer = false;
 
-        let encryption2Initialized = false;
-        const encryption2DecryptMetadata = vi.fn(async () => ({ readStateV1: null }));
-        const encryption2DecryptAgentState = vi.fn(async () => ({ controlledByUser: true }));
-        const encryption2 = {
-            decryptEncryptionKey: async () => new Uint8Array([4, 5, 6]),
-            initializeSessions: async () => {
-                encryption2Initialized = true;
-            },
-            getSessionEncryption: (_sessionId: string) =>
-                encryption2Initialized ? ({ decryptMetadata: encryption2DecryptMetadata, decryptAgentState: encryption2DecryptAgentState } as any) : null,
-        };
+        const crypto = await createSessionCrypto(sessionId);
+        const encryption2 = await Encryption.create(new Uint8Array(32).fill(7));
+        (sync as any).encryption = crypto.encryption;
 
-        let encryption1Initialized = false;
-        const encryption1 = {
-            decryptEncryptionKey: async () => new Uint8Array([1, 2, 3]),
-            initializeSessions: async () => {
-                encryption1Initialized = true;
-            },
-            getSessionEncryption: (_sessionId: string) =>
-                encryption1Initialized
-                    ? ({
-                          decryptMetadata: async () => {
-                              (sync as any).encryption = encryption2 as any;
-                              return { readStateV1: null };
-                          },
-                          decryptAgentState: async () => ({ controlledByUser: true }),
-                      } as any)
-                    : null,
-        };
-
-        (sync as any).encryption = encryption1 as any;
-
-        requestMock.mockResolvedValue(
-            new Response(
+        requestMock.mockImplementation(async () => {
+            (sync as any).encryption = encryption2;
+            return new Response(
                 JSON.stringify({
                     session: {
                         id: sessionId,
@@ -601,17 +635,15 @@ describe('sync.ensureSessionVisibleForMessageRoute', () => {
                         active: true,
                         activeAt: 2,
                         encryptionMode: 'e2ee',
-                        dataEncryptionKey: 'dek',
+                        ...crypto.row,
                         metadataVersion: 1,
-                        metadata: 'enc-meta',
                         agentStateVersion: 1,
-                        agentState: 'enc-state',
                         share: null,
                     },
                 }),
                 { status: 200, headers: { 'Content-Type': 'application/json' } },
-            ),
-        );
+            );
+        });
 
         await expect(sync.ensureSessionVisibleForMessageRoute(sessionId)).resolves.toEqual(expect.objectContaining({
             kind: 'available',
@@ -632,11 +664,8 @@ describe('sync.ensureSessionVisibleForMessageRoute', () => {
         (sync as any).credentials = { token: 't' };
         (sync as any).activeServerSessionIds = new Set<string>([sessionId]);
         (sync as any).hasFetchedSessionsSnapshotForActiveServer = true;
-        (sync as any).encryption = {
-            initializeSessions: vi.fn(async () => {}),
-            getSessionEncryption: vi.fn((_sessionId: string) => ({ decryptMetadata: vi.fn(), decryptAgentState: vi.fn() })),
-            decryptEncryptionKey: vi.fn(async () => new Uint8Array([1, 2, 3])),
-        };
+        const crypto = await createSessionCrypto(sessionId);
+        (sync as any).encryption = crypto.encryption;
 
         requestMock.mockResolvedValue(
             new Response(
@@ -649,11 +678,9 @@ describe('sync.ensureSessionVisibleForMessageRoute', () => {
                         active: true,
                         activeAt: 2,
                         encryptionMode: 'e2ee',
-                        dataEncryptionKey: 'dek',
+                        ...crypto.row,
                         metadataVersion: 1,
-                        metadata: 'enc-meta',
                         agentStateVersion: 1,
-                        agentState: 'enc-state',
                         share: null,
                     },
                 }),
@@ -679,18 +706,12 @@ describe('sync.ensureSessionVisibleForMessageRoute', () => {
 
         const { sync } = await import('./sync');
 
-        const initializeSessions = vi.fn(async () => {});
-        const decryptMetadata = vi.fn(async () => ({ readStateV1: null }));
-        const decryptAgentState = vi.fn(async () => ({ controlledByUser: true }));
+        const crypto = await createSessionCrypto(sessionId);
 
         (sync as any).credentials = { token: 't' };
         (sync as any).activeServerSessionIds = new Set<string>([sessionId]);
         (sync as any).hasFetchedSessionsSnapshotForActiveServer = true;
-        (sync as any).encryption = {
-            decryptEncryptionKey: vi.fn(async () => new Uint8Array([1, 2, 3])),
-            initializeSessions,
-            getSessionEncryption: vi.fn(() => ({ decryptMetadata, decryptAgentState })),
-        };
+        (sync as any).encryption = crypto.encryption;
 
         requestMock.mockResolvedValue(
             new Response(
@@ -703,11 +724,9 @@ describe('sync.ensureSessionVisibleForMessageRoute', () => {
                         active: true,
                         activeAt: 2,
                         encryptionMode: 'e2ee',
-                        dataEncryptionKey: 'dek',
+                        ...crypto.row,
                         metadataVersion: 1,
-                        metadata: 'enc-meta',
                         agentStateVersion: 1,
-                        agentState: 'enc-state',
                         share: null,
                     },
                 }),
@@ -729,7 +748,7 @@ describe('sync.ensureSessionVisibleForMessageRoute', () => {
                 }),
             }),
         );
-        expect(initializeSessions).toHaveBeenCalled();
+        expect(crypto.encryption.getSessionEncryption(sessionId)).not.toBeNull();
     });
 
     it('keeps a fully hydrated known encrypted session on the fast path', async () => {
@@ -859,11 +878,7 @@ describe('sync.ensureSessionVisibleForMessageRoute', () => {
         (sync as any).credentials = { token: 'active-token', secret: 'active-secret' };
         (sync as any).activeServerSessionIds = new Set<string>();
         (sync as any).hasFetchedSessionsSnapshotForActiveServer = false;
-        (sync as any).encryption = {
-            decryptEncryptionKey: vi.fn(async () => null),
-            initializeSessions: vi.fn(async () => {}),
-            getSessionEncryption: vi.fn(() => null),
-        };
+        (sync as any).encryption = await Encryption.create(new Uint8Array(32).fill(7));
 
         requestMock.mockResolvedValue(
             new Response(
@@ -915,6 +930,15 @@ describe('sync.ensureSessionVisibleForMessageRoute', () => {
         const activeServer = upsertServerProfile({ serverUrl: 'https://active.example', name: 'Active' });
         const ownerServer = upsertServerProfile({ serverUrl: 'https://scoped.example', name: 'Owner' });
         setActiveServerId(activeServer.id, { scope: 'device' });
+        // The scoped fetch resolves the target account's own requirement; persist an explicit
+        // opt-out for it so this plain row stays openable.
+        const previousSettingsScope = storage.getState().settingsScope ?? undefined;
+        storage.getState().activateSettingsScope({ serverId: ownerServer.id, accountId: 'owner-account' });
+        storage.getState().applySettingsLocal({
+            clientEncryptionRequirementV1: 'follow_account',
+            clientEncryptionRequirementLocalV1: 'follow_account',
+        });
+        if (previousSettingsScope) storage.getState().activateSettingsScope(previousSettingsScope);
 
         storage.getState().applySessions([
             {
@@ -957,23 +981,15 @@ describe('sync.ensureSessionVisibleForMessageRoute', () => {
 
         const { sync } = await import('./sync');
 
-        const initializeSessions = vi.fn(async () => {});
         (sync as any).credentials = { token: 'active-token', secret: 'active-secret' };
         (sync as any).activeServerSessionIds = new Set<string>();
         (sync as any).hasFetchedSessionsSnapshotForActiveServer = false;
-        (sync as any).encryption = {
-            decryptEncryptionKey: async () => null,
-            initializeSessions,
-            getSessionEncryption: vi.fn(() => null),
-        };
+        const encryption = await Encryption.create(new Uint8Array(32).fill(7));
+        (sync as any).encryption = encryption;
 
         requestMock.mockRejectedValue(new Error('active request should not be used'));
         getCredentialsForServerUrlMock.mockResolvedValue({ token: ownerToken, secret: 'scoped-secret' });
-        createEncryptionFromAuthCredentialsMock.mockResolvedValue({
-            decryptEncryptionKey: async () => null,
-            initializeSessions: async () => {},
-            getSessionEncryption: () => null,
-        });
+        createEncryptionFromAuthCredentialsMock.mockResolvedValue(await Encryption.create(new Uint8Array(32).fill(8)));
         runtimeFetchMock.mockResolvedValue(
             new Response(
                 JSON.stringify({
@@ -1010,7 +1026,7 @@ describe('sync.ensureSessionVisibleForMessageRoute', () => {
         expect(new Headers((sessionRequest?.[1] as RequestInit | undefined)?.headers).get('Authorization'))
             .toBe(`Bearer ${ownerToken}`);
         expect((sync as any).activeServerSessionIds.has(sessionId)).toBe(true);
-        expect(initializeSessions).not.toHaveBeenCalled();
+        expect(encryption.getSessionEncryption(sessionId)).toBeNull();
     });
 
     it('ignores localStorage read errors while evaluating debug hydration logging', async () => {
@@ -1066,31 +1082,17 @@ describe('sync.ensureSessionVisibleForMessageRoute', () => {
         storage.getState().resetSessionMessages(sessionId);
 
         const { sync } = await import('./sync');
-        const initializeSessions = vi.fn<(
-            keys: Map<string, Uint8Array | null>,
-            scope?: Readonly<{ serverId?: string | null }>,
-        ) => Promise<void>>(async () => {});
-        const scopedInitializeSessions = vi.fn(async () => {});
+        const encryption = await Encryption.create(new Uint8Array(32).fill(8));
+        const crypto = await createSessionCrypto(sessionId);
 
         (sync as any).credentials = { token: 'active-token', secret: 'active-secret' };
         (sync as any).activeServerSessionIds = new Set<string>();
         (sync as any).hasFetchedSessionsSnapshotForActiveServer = false;
-        (sync as any).encryption = {
-            decryptEncryptionKey: async () => new Uint8Array([1, 2, 3]),
-            initializeSessions,
-            getSessionEncryption: () => null,
-        };
+        (sync as any).encryption = encryption;
 
         requestMock.mockRejectedValue(new Error('active request should not be used'));
         getCredentialsForServerUrlMock.mockResolvedValue({ token: ownerToken, secret: 'scoped-secret' });
-        createEncryptionFromAuthCredentialsMock.mockResolvedValue({
-            decryptEncryptionKey: async () => new Uint8Array([1, 2, 3]),
-            initializeSessions: scopedInitializeSessions,
-            getSessionEncryption: () => ({
-                decryptMetadata: async () => ({ path: '/repo', host: 'owner' }),
-                decryptAgentState: async () => ({ controlledByUser: true }),
-            }),
-        });
+        createEncryptionFromAuthCredentialsMock.mockResolvedValue(crypto.encryption);
         runtimeFetchMock.mockResolvedValue(
             new Response(
                 JSON.stringify({
@@ -1102,11 +1104,9 @@ describe('sync.ensureSessionVisibleForMessageRoute', () => {
                         active: true,
                         activeAt: 2,
                         encryptionMode: 'e2ee',
-                        dataEncryptionKey: 'dek',
+                        ...crypto.row,
                         metadataVersion: 1,
-                        metadata: 'enc-meta',
                         agentStateVersion: 1,
-                        agentState: 'enc-state',
                         share: null,
                     },
                 }),
@@ -1121,12 +1121,8 @@ describe('sync.ensureSessionVisibleForMessageRoute', () => {
         }));
 
         expect(requestMock).not.toHaveBeenCalled();
-        expect(scopedInitializeSessions).toHaveBeenCalled();
-        expect(initializeSessions).toHaveBeenCalledTimes(1);
-        expect(initializeSessions.mock.calls[0]?.[0].get(sessionId)).toEqual(new Uint8Array([1, 2, 3]));
-        expect(initializeSessions.mock.calls[0]?.[1]).toEqual(expect.objectContaining({
-            serverId: ownerServer.id,
-        }));
+        expect(encryption.hasSessionEncryptionKey(sessionId, crypto.dataKey, { serverId: ownerServer.id })).toBe(true);
+        expect(await encryption.getSessionEncryption(sessionId)!.decryptRaw(crypto.row.metadata)).toMatchObject({ path: '/repo' });
     });
 
     it('records terminal auth and stops route hydration when session-by-id returns 401', async () => {

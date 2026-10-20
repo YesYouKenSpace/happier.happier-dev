@@ -1,11 +1,12 @@
 import { requireEncryptionCredentials, type Credentials } from '@/persistence';
 
 import { isAuthenticationError } from '@/api/client/httpStatusError';
-import { openSessionDataEncryptionKey } from '@/api/client/openSessionDataEncryptionKey';
 import { fetchSessionById } from '@/session/transport/http/sessionsHttp';
 import { fetchLatestMemorySynopsisSystemRecord } from '@/session/systemRecords/memory/fetchMemorySystemRecords';
 import {
+  requireEncryptedSessionContext,
   resolveSessionStoredContentEncryptionMode,
+  resolveSessionEncryptionContextFromCredentials,
   type SessionEncryptionContext,
   type SessionStoredContentEncryptionMode,
 } from '@/session/transport/encryption/sessionEncryptionContext';
@@ -43,11 +44,8 @@ export async function hydrateReplayDialogFromTranscript(params: Readonly<{
   const session = await fetchSessionById({ token: params.credentials.token, sessionId: params.previousSessionId });
   if (!session) return null;
 
-  const rawSession = session as Readonly<{
-    seq?: unknown;
-    encryptionMode?: unknown;
-    dataEncryptionKey?: unknown;
-  }>;
+  const rawSession = session;
+  const ctx = resolveSessionEncryptionContextFromCredentials(params.credentials, rawSession);
 
   const sessionSeq =
     typeof rawSession.seq === 'number' && Number.isFinite(rawSession.seq) ? Math.max(0, Math.floor(rawSession.seq)) : 0;
@@ -86,23 +84,7 @@ export async function hydrateReplayDialogFromTranscript(params: Readonly<{
     };
   }
 
-  requireEncryptionCredentials(params.credentials);
-  if (params.credentials.encryption.type !== 'dataKey') {
-    return null;
-  }
-
-  const encryptedDekBase64 = typeof rawSession.dataEncryptionKey === 'string'
-    ? String(rawSession.dataEncryptionKey).trim()
-    : null;
-  if (!encryptedDekBase64) return null;
-
-  const dek = openSessionDataEncryptionKey({
-    credential: params.credentials,
-    encryptedDataEncryptionKeyBase64: encryptedDekBase64,
-  });
-  if (!dek) return null;
-
-  const ctx = { encryptionKey: dek, encryptionVariant: 'dataKey' as const };
+  requireEncryptedSessionContext(ctx);
   const systemRecordSynopsis = await tryHydrateSynopsisFromSystemRecord({
     credentials: params.credentials,
     sessionId: params.previousSessionId,

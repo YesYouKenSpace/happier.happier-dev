@@ -21,6 +21,8 @@ import { getRandomBytes } from '@/platform/cryptoRandom';
 import {
     openAccountScopedBlobCiphertext,
     openEncryptedDataKeyEnvelopeV1,
+    openOwnerSessionDataKeyEnvelope,
+    SessionKeyAuthenticationError,
     sealAccountScopedBlobCiphertext,
     sealEncryptedDataKeyEnvelopeV1,
 } from '@happier-dev/protocol';
@@ -58,6 +60,11 @@ export type EncryptionScopeInput = Readonly<{
     sessionId?: string | null;
     signal?: AbortSignal;
     shouldContinue?: () => boolean;
+}>;
+
+export type SessionEncryptionKeyRow = Readonly<{
+    id: string;
+    dataEncryptionKey: string;
 }>;
 
 export type EncryptionGenerationScope = Readonly<{
@@ -202,7 +209,6 @@ export class Encryption {
     ) {
         this.anonID = anonID;
         this.contentKeyPair = contentKeyPair;
-        this.fallbackSecret = masterSecret;
         this.useDataKeyFallback = useDataKeyFallback;
         this.fallbackEncryption = masterSecret ? this.createFallbackEncryption(masterSecret) : null;
         this.automationTemplateEncryption = masterSecret ? new SecretBoxEncryption(masterSecret) : null;
@@ -355,8 +361,8 @@ export class Encryption {
 
     async openEncryption(dataEncryptionKey: Uint8Array | null, scopeInput: EncryptionScopeInput = {}): Promise<Encryptor & Decryptor> {
         if (!dataEncryptionKey) {
-            if (!this.fallbackSecret) throw new EncryptionMaterialUnavailableError();
-            return scopeInput.sessionId ? this.createFallbackEncryption(this.fallbackSecret, scopeInput) : this.requireFallbackEncryption();
+            if (scopeInput.sessionId) throw new SessionKeyAuthenticationError();
+            return this.requireFallbackEncryption();
         }
         return new AES256Encryption(dataEncryptionKey, {
             batchConcurrencyLimit: this.aesBatchConcurrencyLimit,
@@ -375,6 +381,10 @@ export class Encryption {
     async initializeSessions(sessions: Map<string, Uint8Array | null>, scopeInput: EncryptionScopeInput = {}): Promise<void> {
         const scope = this.resolveEncryptionScope(scopeInput);
         for (const [sessionId, dataKey] of sessions) {
+            if (!dataKey || dataKey.length !== 32) {
+                this.removeSessionEncryption(sessionId);
+                throw new SessionKeyAuthenticationError();
+            }
             const sessionScope = {
                 ...scope,
                 sessionId,
@@ -428,6 +438,14 @@ export class Encryption {
      */
     getSessionEncryption(sessionId: string): SessionEncryption | null {
         return this.sessionEncryptions.get(sessionId) || null;
+    }
+
+    hasSessionEncryptionKey(sessionId: string, dataKey: Uint8Array, scopeInput: EncryptionScopeInput = {}): boolean {
+        const expected = this.resolveEncryptionScope(scopeInput);
+        const actual = this.sessionEncryptionScopes.get(sessionId);
+        return this.sessionEncryptions.has(sessionId)
+            && actual?.accountId === expected.accountId && actual?.serverId === expected.serverId
+            && this.sessionKeyFingerprints.get(sessionId) === getDataKeyFingerprint(dataKey);
     }
 
     /**
@@ -579,6 +597,44 @@ export class Encryption {
     //
     // Data Encryption Key decryption
     //
+
+    async decryptSessionEncryptionKey(sessionId: string, encrypted: string): Promise<Uint8Array | null> {
+        const [key] = await this.decryptSessionEncryptionKeys([{ id: sessionId, dataEncryptionKey: encrypted }]);
+        return key ?? null;
+    }
+
+    async decryptSessionEncryptionKeys(
+        rows: readonly SessionEncryptionKeyRow[],
+        scope: EncryptionScopeInput = {},
+    ): Promise<Array<Uint8Array | null>> {
+        if (rows.length === 0) return [];
+        const capturedScope = this.getCurrentEncryptionGenerationScope(scope);
+        const isCurrent = () => !scope.signal?.aborted && scope.shouldContinue?.() !== false
+            && this.isCurrentEncryptionGenerationScope(capturedScope);
+        return syncPerformanceTelemetry.measureAsync(
+            'sync.encryption.account.decryptSessionDataKey',
+            { items: rows.length },
+            async () => {
+                // The owner envelope is tag-bound and account-authenticated; the session-ID
+                // binding is verified later against DEK-encrypted metadata, which stock
+                // relays return opaquely. The V1 native ABI cannot open this primitive,
+                // so owner keys always use the shared reference implementation here.
+                const keys = await mapCryptoBatchWithYield(rows, (row) => {
+                    if (!isCurrent()) return null;
+                    try {
+                        const opened = openOwnerSessionDataKeyEnvelope({
+                            material: { type: 'dataKey', machineKey: this.contentKeyPair.privateKey },
+                            envelope: decodeBase64(row.dataEncryptionKey, 'base64'),
+                        });
+                        return opened?.dataKey ?? null;
+                    } catch {
+                        return null;
+                    }
+                });
+                return isCurrent() ? keys : rows.map(() => null);
+            },
+        );
+    }
 
     async decryptEncryptionKey(encrypted: string, scope?: EncryptionScopeInput) {
         const [decrypted] = await this.decryptEncryptionKeys([encrypted], scope);

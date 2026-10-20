@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import tweetnacl from 'tweetnacl';
 import { createServer, type Server } from 'node:http';
@@ -12,8 +12,9 @@ import {
   accountSettingsParse,
   buildConnectedServiceCredentialRecord,
   projectSessionMetadataForWire,
+  buildSessionKeyBindingMetadataField,
   sealAccountScopedBlobCiphertext,
-  sealEncryptedDataKeyEnvelopeV1,
+  sealOwnerSessionDataKeyEnvelope,
 } from '@happier-dev/protocol';
 
 import { reloadConfiguration } from '@/configuration';
@@ -105,7 +106,12 @@ describe('happier resume', () => {
   }) as any);
 
   beforeEach(() => {
+    vi.stubEnv('HAPPIER_ENCRYPTION_REQUIREMENT', 'follow_account');
     exitSpy.mockClear();
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    reloadConfiguration();
   });
 
   it('prints usage for --help without requiring authentication', async () => {
@@ -386,9 +392,10 @@ describe('happier resume', () => {
       };
 
       const sessionEncryptionKey = new Uint8Array(32).fill(5);
-      const envelope = sealEncryptedDataKeyEnvelopeV1({
+      const envelope = sealOwnerSessionDataKeyEnvelope({
         dataKey: sessionEncryptionKey,
-        recipientPublicKey: publicKey,
+        material: credentials.encryption,
+        sessionTag: 'tag',
         randomBytes: deterministicRandomBytesFactory(),
       });
 
@@ -403,6 +410,7 @@ describe('happier resume', () => {
               host: 'test',
               flavor: 'codex',
               codexSessionId: vendorResumeId,
+              ...buildSessionKeyBindingMetadataField({ sessionId: 'sid_1', sessionTag: 'tag' }),
             }),
           ),
           active: false,

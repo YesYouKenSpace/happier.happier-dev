@@ -1,4 +1,4 @@
-import type { EncryptionGenerationScope, EncryptionScopeInput } from './encryption';
+import type { EncryptionGenerationScope, EncryptionScopeInput, SessionEncryptionKeyRow } from './encryption';
 
 type SessionDataKeyRow = Readonly<{
     id: string;
@@ -7,7 +7,9 @@ type SessionDataKeyRow = Readonly<{
 }>;
 
 export type SessionDataKeyHydrationEncryption = Readonly<{
-    decryptEncryptionKeys: (values: readonly string[], scope?: EncryptionScopeInput) => Promise<Array<Uint8Array | null>>;
+    decryptSessionEncryptionKeys: (rows: readonly SessionEncryptionKeyRow[], scope?: EncryptionScopeInput) => Promise<Array<Uint8Array | null>>;
+    hasSessionEncryptionKey: (sessionId: string, dataKey: Uint8Array, scope?: EncryptionScopeInput) => boolean;
+    removeSessionEncryption: (sessionId: string) => void;
     getCurrentEncryptionGenerationScope?: (scope?: EncryptionScopeInput) => EncryptionGenerationScope;
     isCurrentEncryptionGenerationScope?: (scope: EncryptionGenerationScope) => boolean;
 }>;
@@ -118,14 +120,6 @@ function isHydrationScopeCurrent(params: Readonly<{
     return params.encryption.isCurrentEncryptionGenerationScope?.(params.capturedScope) ?? true;
 }
 
-async function decryptBatch(params: Readonly<{
-    encryption: SessionDataKeyHydrationEncryption;
-    envelopes: readonly string[];
-    scope: EncryptionScopeInput;
-}>): Promise<Array<Uint8Array | null>> {
-    return params.encryption.decryptEncryptionKeys(params.envelopes, params.scope);
-}
-
 export async function hydrateSessionDataKeys(params: Readonly<{
     plan: SessionDataKeyHydrationPlan;
     encryption: SessionDataKeyHydrationEncryption;
@@ -143,13 +137,22 @@ export async function hydrateSessionDataKeys(params: Readonly<{
         return { sessionKeys, sessionEncryptionClears, stale: true };
     }
 
-    const decryptEntries = params.plan.entries.filter((entry) => entry.needsDecrypt && entry.envelope);
+    const decryptEntries = params.plan.entries.filter((entry) => entry.envelope && (
+        entry.needsDecrypt || !entry.cachedKey || !params.encryption.hasSessionEncryptionKey(entry.sessionId, entry.cachedKey, scope)
+    ));
+    const decryptIds = new Set(decryptEntries.map((entry) => entry.sessionId));
+    // Retire replaced-key write contexts before the yielding batch, including failed or cancelled refreshes.
+    for (const entry of params.plan.entries) {
+        if (!entry.hasEnvelope || decryptIds.has(entry.sessionId)) {
+            params.sessionDataKeys.delete(entry.sessionId);
+            params.sessionDataKeyEnvelopes?.delete(entry.sessionId);
+            params.encryption.removeSessionEncryption(entry.sessionId);
+        }
+    }
     const decryptedKeys = decryptEntries.length > 0
-        ? await decryptBatch({
-            encryption: params.encryption,
-            envelopes: decryptEntries.map((entry) => entry.envelope!),
-            scope,
-        })
+        ? await params.encryption.decryptSessionEncryptionKeys(
+            decryptEntries.map((entry) => ({ id: entry.sessionId, dataEncryptionKey: entry.envelope! })), scope,
+        )
         : [];
 
     if (!isHydrationScopeCurrent({ encryption: params.encryption, capturedScope, shouldContinue })) {
@@ -171,7 +174,7 @@ export async function hydrateSessionDataKeys(params: Readonly<{
             continue;
         }
 
-        const decryptedKey = entry.needsDecrypt
+        const decryptedKey = decryptedBySessionId.has(entry.sessionId)
             ? decryptedBySessionId.get(entry.sessionId) ?? null
             : entry.cachedKey;
         if (decryptedKey) {

@@ -10,6 +10,17 @@ Happier supports two account/storage models:
 
 This page explains what that means as a user, what your secret key is for, and what changes when a deployment enables plaintext storage.
 
+<Callout type="warn" title="Development fork session-key cutover">
+The yesyoukenspace fork's current development source authenticates owner-session keys against the
+account content secret and session identity, with no relay change required. Upgrade the app and
+CLI/daemon together for new sessions. Updated clients reject old unauthenticated encrypted sessions
+and current encrypted direct shares; restoring the account alone does not migrate them. Stored data
+is retained, and no automatic rewrap is performed. A new session can be created with updated
+components, including against stock relays; recovery of old sessions requires a separately
+established trusted migration path. This is not an upstream release claim or browser/native-device
+certification.
+</Callout>
+
 ## Default model: device-key accounts
 
 For device-key accounts:

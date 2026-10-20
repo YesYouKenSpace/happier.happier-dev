@@ -1,5 +1,5 @@
 import type { Credentials } from '@/persistence';
-import { tryDecryptSessionMetadata } from '@/session/transport/encryption/sessionEncryptionContext';
+import { readSessionMetadataForPresentation } from './readSessionMetadataForPresentation';
 import {
   fetchSessionById,
   fetchSessionsPage,
@@ -17,7 +17,8 @@ function normalizeIdOrPrefix(value: string): string {
 }
 
 function isFullSessionId(value: string): boolean {
-  return /^c[a-z0-9]{24}$/.test(value);
+  return /^c[a-z0-9]{24}$/.test(value)
+    || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }
 
 export async function resolveSessionIdOrPrefix(params: Readonly<{
@@ -67,7 +68,7 @@ export async function resolveSessionIdOrPrefix(params: Readonly<{
           }
 
           // Also support resolving by exact tag match when metadata is decryptable.
-          const meta = tryDecryptSessionMetadata({ credentials: params.credentials, rawSession: row });
+          const meta = readSessionMetadataForPresentation({ credentials: params.credentials, rawSession: row });
           const tag = meta && typeof meta.tag === 'string' ? meta.tag.trim() : '';
           if (tag && tag === input) {
             const res = recordMatch(row);
@@ -93,7 +94,7 @@ export async function resolveSessionIdOrPrefix(params: Readonly<{
     return { ok: false, code: 'session_id_ambiguous', candidates: Array.from(matches).slice(0, 10) };
   };
 
-  // Built-in tool calls supply server-issued full ids and have a 30s outer budget. Keep
+  // Built-in tool calls supply full ids and have a 30s outer budget. Keep
   // existing prefix/tag lookup behavior unchanged; those interactive searches have no
   // equivalent owner deadline and may legitimately require the configured page scan.
   if (!isFullSessionId(input)) return await resolve();

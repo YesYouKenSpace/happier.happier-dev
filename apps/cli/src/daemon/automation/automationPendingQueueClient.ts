@@ -1,54 +1,25 @@
 import { randomUUID } from 'node:crypto';
 
-import { readPendingLocalId } from '@happier-dev/protocol';
-import { decodeBase64, encodeBase64, encrypt } from '@/api/encryption';
+import {
+  readPendingLocalId,
+  SessionKeyAuthenticationError,
+  type AccountScopedCryptoMaterial,
+} from '@happier-dev/protocol';
 import { enqueuePendingQueueV2MessageViaHttp } from '@/api/session/pendingQueueV2Transport';
-
-type PendingMessageCiphertextPayload = Readonly<{
-  role: 'user';
-  content: {
-    type: 'text';
-    text: string;
-  };
-  meta: {
-    sentFrom: 'cli';
-    source: 'automation';
-    displayText?: string;
-  };
-}>;
-
-function buildPendingCiphertext(params: {
-  prompt: string;
-  displayText?: string;
-  sessionEncryptionKeyBase64: string;
-}): string {
-  const message: PendingMessageCiphertextPayload = {
-    role: 'user',
-    content: {
-      type: 'text',
-      text: params.prompt,
-    },
-    meta: {
-      sentFrom: 'cli',
-      source: 'automation',
-      ...(typeof params.displayText === 'string' && params.displayText.trim().length > 0
-        ? { displayText: params.displayText }
-        : {}),
-    },
-  };
-
-  const dataKey = decodeBase64(params.sessionEncryptionKeyBase64);
-  const encrypted = encrypt(dataKey, 'dataKey', message);
-  return encodeBase64(encrypted);
-}
+import { fetchSessionById } from '@/session/transport/http/sessionsHttp';
+import {
+  encryptSessionPayload,
+  resolveSessionEncryptionContextFromCredentials,
+  resolveSessionStoredContentEncryptionMode,
+} from '@/session/transport/encryption/sessionEncryptionContext';
 
 export async function enqueueAutomationPrompt(params: {
   token: string;
+  encryption: AccountScopedCryptoMaterial;
   sessionId: string;
   prompt: string;
   displayText?: string;
   sessionEncryptionMode: 'e2ee' | 'plain';
-  sessionEncryptionKeyBase64?: string;
   localId?: string;
 }): Promise<void> {
   const prompt = params.prompt.trim();
@@ -58,40 +29,28 @@ export async function enqueueAutomationPrompt(params: {
 
   const localId = readPendingLocalId(params.localId) ?? randomUUID();
   const displayText = typeof params.displayText === 'string' ? params.displayText : undefined;
-
-  const body = params.sessionEncryptionMode === 'plain'
-      ? {
-        localId,
-        messageRole: 'user' as const,
-        requestedAction: { v: 1 as const, kind: 'enqueue' as const },
-        content: {
-          t: 'plain' as const,
-          v: {
-            role: 'user' as const,
-            content: {
-              type: 'text' as const,
-              text: prompt,
-            },
-            meta: {
-              sentFrom: 'cli' as const,
-              source: 'automation' as const,
-              ...(typeof displayText === 'string' && displayText.trim().length > 0
-                ? { displayText }
-                : {}),
-            },
-          },
-        },
-      }
-      : {
-        localId,
-        messageRole: 'user' as const,
-        requestedAction: { v: 1 as const, kind: 'enqueue' as const },
-        ciphertext: buildPendingCiphertext({
-          prompt,
-          ...(displayText ? { displayText } : {}),
-          sessionEncryptionKeyBase64: String(params.sessionEncryptionKeyBase64 ?? ''),
-        }),
-      };
+  const rawSession = await fetchSessionById({ token: params.token, sessionId: params.sessionId });
+  if (!rawSession) throw new SessionKeyAuthenticationError();
+  const mode = resolveSessionStoredContentEncryptionMode(rawSession);
+  if (params.sessionEncryptionMode === 'e2ee' && mode === 'plain') throw new SessionKeyAuthenticationError();
+  const ctx = resolveSessionEncryptionContextFromCredentials(params, rawSession);
+  const message = {
+    role: 'user' as const,
+    content: { type: 'text' as const, text: prompt },
+    meta: {
+      sentFrom: 'cli',
+      source: 'automation',
+      ...(displayText?.trim() ? { displayText } : {}),
+    },
+  };
+  const body = {
+    localId,
+    messageRole: 'user' as const,
+    requestedAction: { v: 1 as const, kind: 'enqueue' as const },
+    ...(mode === 'plain'
+      ? { content: { t: 'plain' as const, v: message } }
+      : { ciphertext: encryptSessionPayload({ ctx, payload: message }) }),
+  };
 
   await enqueuePendingQueueV2MessageViaHttp({
     token: params.token,

@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { configuration } from '@/configuration';
 
 import { SPAWN_SESSION_ERROR_CODES, type SpawnSessionResult } from '@/rpc/handlers/registerSessionHandlers';
 
@@ -115,7 +116,10 @@ function createdChildRow(): Record<string, unknown> {
 }
 
 describe('continueSessionWithReplay — canonical creation delegation', () => {
+  const previousRequirement = configuration.clientEncryptionRequirement;
+  afterEach(() => Object.assign(configuration, { clientEncryptionRequirement: previousRequirement }));
   beforeEach(() => {
+    Object.assign(configuration, { clientEncryptionRequirement: 'follow_account' });
     readCredentials.mockReset();
     fetchSessionByIdCompat.mockReset();
     getOrCreateSessionByTag.mockReset();

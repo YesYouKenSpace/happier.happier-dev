@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { encodeBase64, encryptLegacy } from '@/api/encryption';
+import { createEncryptedSessionRecordFixture } from '@/testkit/backends/sessionFixtures';
 import type { Credentials } from '@/persistence';
 import type { RawSessionListRow } from '@/session/transport/http/sessionsHttp';
 import { accountSettingsParse } from '@happier-dev/protocol';
@@ -32,8 +32,8 @@ function buildEncryptedSessionListRow(params: Readonly<{
   metadata: Record<string, unknown>;
   encryptionSecret: Uint8Array;
 }>): RawSessionListRow {
-  const encryptedMetadata = encryptLegacy(params.metadata, params.encryptionSecret);
-  return {
+  return createEncryptedSessionRecordFixture({
+    credentials: { token: 'synthetic-token', encryption: { type: 'legacy', secret: params.encryptionSecret } },
     id: params.sessionId,
     seq: 1,
     createdAt: 1_700_000_000_000,
@@ -41,18 +41,13 @@ function buildEncryptedSessionListRow(params: Readonly<{
     active: params.active,
     activeAt: 1_700_000_010_000,
     archivedAt: params.archivedAt ?? null,
-    metadata: encodeBase64(encryptedMetadata),
+    metadata: params.metadata,
     metadataVersion: 1,
     agentState: null,
     agentStateVersion: 0,
     pendingCount: 0,
-    encryptionMode: 'e2ee',
-    encryption: { type: 'legacy' },
-    title: null,
-    path: typeof params.metadata.path === 'string' ? (params.metadata.path as string) : null,
-    host: typeof params.metadata.host === 'string' ? (params.metadata.host as string) : null,
     share: null,
-  } as unknown as RawSessionListRow;
+  });
 }
 
 describe('buildResumeSelectionModel', () => {

@@ -8,10 +8,11 @@ import { createTempDir, removeTempDir } from '@/testkit/fs/tempDir';
 describe('hydrateReplayDialogFromForkChain (integration)', () => {
   let server: Server | null = null;
   let happyHomeDir = '';
-  let envScope = createEnvKeyScope(['HAPPIER_SERVER_URL', 'HAPPIER_WEBAPP_URL', 'HAPPIER_HOME_DIR']);
+  let envScope = createEnvKeyScope(['HAPPIER_SERVER_URL', 'HAPPIER_WEBAPP_URL', 'HAPPIER_HOME_DIR', 'HAPPIER_ENCRYPTION_REQUIREMENT']);
 
   beforeEach(async () => {
-    envScope = createEnvKeyScope(['HAPPIER_SERVER_URL', 'HAPPIER_WEBAPP_URL', 'HAPPIER_HOME_DIR']);
+    envScope = createEnvKeyScope(['HAPPIER_SERVER_URL', 'HAPPIER_WEBAPP_URL', 'HAPPIER_HOME_DIR', 'HAPPIER_ENCRYPTION_REQUIREMENT']);
+    envScope.patch({ HAPPIER_ENCRYPTION_REQUIREMENT: 'follow_account' });
     happyHomeDir = await createTempDir('happier-cli-replay-hydrate-forkchain-');
   });
 
@@ -970,6 +971,7 @@ describe('hydrateReplayDialogFromForkChain — character-budget window', () => {
     'HAPPIER_WEBAPP_URL',
     'HAPPIER_HOME_DIR',
     'HAPPIER_REPLAY_SEED_MAX_TRANSCRIPT_REQUESTS',
+    'HAPPIER_ENCRYPTION_REQUIREMENT',
   ]);
 
   beforeEach(async () => {
@@ -978,7 +980,9 @@ describe('hydrateReplayDialogFromForkChain — character-budget window', () => {
       'HAPPIER_WEBAPP_URL',
       'HAPPIER_HOME_DIR',
       'HAPPIER_REPLAY_SEED_MAX_TRANSCRIPT_REQUESTS',
+      'HAPPIER_ENCRYPTION_REQUIREMENT',
     ]);
+    envScope.patch({ HAPPIER_ENCRYPTION_REQUIREMENT: 'follow_account' });
     happyHomeDir = await createTempDir('happier-cli-replay-window-');
   });
 

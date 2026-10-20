@@ -11,6 +11,7 @@ import {
   normalizeSessionMetadataForRead,
   SESSION_USAGE_LIMIT_RECOVERY_METADATA_KEY,
   SessionUsageLimitRecoveryV1Schema,
+  SessionKeyAuthenticationError,
   buildStructuredQuestionAnswerPayload,
   type ActionExecutorDeps,
   type BackendTargetRefV1,
@@ -80,7 +81,6 @@ import type {
 } from '@/session/transport/encryption/sessionEncryptionContext';
 import {
   decryptStoredSessionPayload,
-  resolveSessionEncryptionContextFromCredentials,
   resolveSessionStoredContentEncryptionMode,
 } from '@/session/transport/encryption/sessionEncryptionContext';
 import {
@@ -225,7 +225,7 @@ function buildInvalidParametersResult() {
 function readSessionMetadata(params: Readonly<{
   rawSession?: Readonly<{ metadata?: unknown }> | null;
   mode?: SessionStoredContentEncryptionMode;
-  ctx: SessionEncryptionContext;
+  ctx?: SessionEncryptionContext;
 }>): Record<string, unknown> | null {
   const raw = params.rawSession?.metadata;
   if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
@@ -234,13 +234,10 @@ function readSessionMetadata(params: Readonly<{
   if (typeof raw !== 'string' || raw.trim().length === 0 || !params.mode) {
     return null;
   }
-
   try {
-    const decrypted = decryptStoredSessionPayload({
-      mode: params.mode,
-      ctx: params.ctx,
-      value: raw,
-    });
+    const decrypted = params.mode === 'plain'
+      ? JSON.parse(raw)
+      : params.ctx ? decryptStoredSessionPayload({ mode: params.mode, ctx: params.ctx, value: raw }) : null;
     return decrypted && typeof decrypted === 'object' && !Array.isArray(decrypted)
       ? normalizeSessionMetadataForRead(decrypted as Record<string, unknown>)
       : null;
@@ -252,7 +249,7 @@ function readSessionMetadata(params: Readonly<{
 function readRawSessionMetadata(params: Readonly<{
   rawSession?: Readonly<{ metadata?: unknown }> | null;
   mode?: SessionStoredContentEncryptionMode;
-  ctx: SessionEncryptionContext;
+  ctx?: SessionEncryptionContext;
 }>): Record<string, unknown> | null {
   return readSessionMetadata({
     rawSession: params.rawSession,
@@ -454,7 +451,7 @@ export function createCliActionInventoryDeps(params: Readonly<{
   token: string;
   credentials?: Credentials;
   sessionId: string;
-  ctx: SessionEncryptionContext;
+  ctx?: SessionEncryptionContext;
   mode?: SessionStoredContentEncryptionMode;
   rawSession?: Readonly<{ metadata?: unknown; path?: unknown }> | null;
   resolveTransportForSession?: (
@@ -509,16 +506,12 @@ export function createCliActionInventoryDeps(params: Readonly<{
         normalizedSessionId === params.sessionId && params.mode
           ? params.mode
           : resolveSessionStoredContentEncryptionMode(rawSession ?? undefined);
-      const rawMetadata = rawSession?.metadata;
-      const metadataRequiresDecryption = typeof rawMetadata === 'string' && rawMetadata.trim().length > 0;
-      const ctx =
-        metadataRequiresDecryption && normalizedSessionId !== params.sessionId && params.credentials
-          ? resolveSessionEncryptionContextFromCredentials(params.credentials, rawSession ?? undefined)
-          : params.ctx;
+      const ctx = normalizedSessionId === params.sessionId ? params.ctx : undefined;
       const metadata = readSessionMetadata({ rawSession, mode, ctx });
       metadataCache.set(normalizedSessionId, metadata);
       return metadata;
-    } catch {
+    } catch (error) {
+      if (error instanceof SessionKeyAuthenticationError) throw error;
       metadataCache.set(normalizedSessionId, null);
       return null;
     }
@@ -610,7 +603,7 @@ export function createCliActionDeps(params: Readonly<{
   token: string;
   credentials?: Credentials;
   sessionId: string;
-  ctx: SessionEncryptionContext;
+  ctx?: SessionEncryptionContext;
   mode?: SessionStoredContentEncryptionMode;
   rawSession?: Readonly<{
     metadata?: unknown;
@@ -693,7 +686,8 @@ export function createCliActionDeps(params: Readonly<{
         ctx,
       });
       return currentSessionMetadata;
-    } catch {
+    } catch (error) {
+      if (error instanceof SessionKeyAuthenticationError) throw error;
       currentSessionMetadata = null;
       return null;
     }

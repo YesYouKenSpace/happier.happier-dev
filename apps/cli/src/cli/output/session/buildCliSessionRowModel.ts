@@ -5,7 +5,7 @@ import {
 } from '@happier-dev/protocol';
 
 import type { Credentials } from '@/persistence';
-import { tryDecryptSessionMetadata } from '@/session/transport/encryption/sessionEncryptionContext';
+import { readSessionMetadataForPresentation } from '@/session/query/readSessionMetadataForPresentation';
 import type { RawSessionListRow, RawSessionRecord } from '@/session/transport/http/sessionsHttp';
 
 export type CliSessionRowModel = Readonly<{
@@ -19,6 +19,7 @@ export type CliSessionRowModel = Readonly<{
   tag: string | null;
   title: string | null;
   path: string | null;
+  metadataAvailable: boolean;
   isSystem: boolean;
   systemPurpose: string | null;
   vendorResume: VendorResumeEligibility;
@@ -62,7 +63,7 @@ export function buildCliSessionRowModel(params: Readonly<{
   const activeAt = raw.activeAt;
   const archivedAt = resolveArchivedAtValue(raw);
 
-  const metadata = tryDecryptSessionMetadata({ credentials: params.credentials, rawSession: params.rawSession });
+  const metadata = readSessionMetadataForPresentation({ credentials: params.credentials, rawSession: params.rawSession });
   const metaRecord = metadata && typeof metadata === 'object' && !Array.isArray(metadata)
     ? (metadata as Record<string, unknown>)
     : null;
@@ -96,6 +97,7 @@ export function buildCliSessionRowModel(params: Readonly<{
     tag,
     title,
     path,
+    metadataAvailable: metaRecord !== null,
     isSystem,
     systemPurpose,
     vendorResume,

@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { configuration } from '@/configuration';
 import type { Credentials } from '@/persistence';
 import { ConnectedServiceMaterializationIdentityV1Schema } from '@happier-dev/protocol';
 
@@ -94,13 +95,23 @@ function replaySeededParams(
 }
 
 describe('createSpawnedSession — Replay-seeded creation', () => {
+  // Replay mechanics, not encryption policy: these plaintext fixtures must run
+  // permissive under the fork's require_e2ee default. The configuration singleton
+  // is constructed at import time, so pin it directly (env stubs cannot reach it).
+  const previousRequirement = configuration.clientEncryptionRequirement;
   beforeEach(() => {
+    Object.assign(configuration, { clientEncryptionRequirement: 'follow_account' });
     spawnDaemonSession.mockReset();
     resolveDaemonSpawnSessionByNonce.mockReset();
     fetchSessionById.mockReset();
     getOrCreateSessionByTag.mockReset();
     archiveSessionByIdBestEffort.mockClear();
     updateSessionMetadataWithRetry.mockClear();
+  });
+
+  afterEach(() => {
+    Object.assign(configuration, { clientEncryptionRequirement: previousRequirement });
+    vi.unstubAllEnvs();
   });
 
   it('commits the row from the caller tag and attaches the launched runner to it', async () => {

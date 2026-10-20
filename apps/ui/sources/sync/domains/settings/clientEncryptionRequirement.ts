@@ -52,3 +52,7 @@ export function assertUiSessionEncryptionModeAllowed(params: Readonly<{
         { code: 'CLIENT_E2EE_REQUIRED' },
     );
 }
+
+export function isUiClientEncryptionRequirementError(error: unknown): error is Error & { code: 'CLIENT_E2EE_REQUIRED' } {
+    return error instanceof Error && 'code' in error && error.code === 'CLIENT_E2EE_REQUIRED';
+}

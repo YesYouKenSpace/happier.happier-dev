@@ -36,11 +36,11 @@ describe('resolveReplaySeedDraft — empty source vs failed retrieval', () => {
   let server: Server | null = null;
   let happyHomeDir = '';
   let sourceMode: SourceMode = 'empty';
-  let envScope = createEnvKeyScope(['HAPPIER_SERVER_URL', 'HAPPIER_WEBAPP_URL', 'HAPPIER_HOME_DIR']);
+  let envScope = createEnvKeyScope(['HAPPIER_SERVER_URL', 'HAPPIER_WEBAPP_URL', 'HAPPIER_HOME_DIR', 'HAPPIER_ENCRYPTION_REQUIREMENT']);
 
   beforeEach(async () => {
     sourceMode = 'empty';
-    envScope = createEnvKeyScope(['HAPPIER_SERVER_URL', 'HAPPIER_WEBAPP_URL', 'HAPPIER_HOME_DIR']);
+    envScope = createEnvKeyScope(['HAPPIER_SERVER_URL', 'HAPPIER_WEBAPP_URL', 'HAPPIER_HOME_DIR', 'HAPPIER_ENCRYPTION_REQUIREMENT']);
     happyHomeDir = await createTempDir('happier-cli-replay-empty-source-');
     const session = {
       id: SESSION_ID,
@@ -93,6 +93,7 @@ describe('resolveReplaySeedDraft — empty source vs failed retrieval', () => {
       HAPPIER_SERVER_URL: `http://127.0.0.1:${address.port}`,
       HAPPIER_WEBAPP_URL: 'http://127.0.0.1:3000',
       HAPPIER_HOME_DIR: happyHomeDir,
+      HAPPIER_ENCRYPTION_REQUIREMENT: 'follow_account',
     });
     const { reloadConfiguration } = await import('@/configuration');
     reloadConfiguration();

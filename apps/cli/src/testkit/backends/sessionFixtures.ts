@@ -4,6 +4,9 @@ import type { ACPMessageData } from '@/api/session/sessionMessageTypes';
 import type { ApiSessionClient } from '@/api/session/sessionClient';
 import type { Metadata, PermissionMode, Session } from '@/api/types';
 import type { V2SessionListResponse, V2SessionRecord } from '@happier-dev/protocol';
+import { buildSessionKeyBindingMetadataField, sealOwnerSessionDataKeyEnvelope } from '@happier-dev/protocol';
+import type { Credentials } from '@/persistence';
+import { encodeBase64, encrypt, getRandomBytes } from '@/api/encryption';
 
 import { createTestMetadata } from './sessionMetadata';
 
@@ -234,4 +237,37 @@ export function createSessionListResponseFixture(
         nextCursor: options.nextCursor ?? null,
         hasNext: options.hasNext ?? false,
     };
+}
+
+export function createEncryptedSessionRecordFixture(params: Omit<Partial<SessionRecordFixture>, 'metadata' | 'dataEncryptionKey' | 'encryptionMode'> & Readonly<{
+    id: string;
+    credentials: Credentials;
+    metadata: Record<string, unknown>;
+    sessionTag?: string;
+    dataKey?: Uint8Array;
+    /** Default publishes the binding for { id, sessionTag }; pass null to omit it (window/pending cases). */
+    binding?: { sessionId: string; sessionTag: string } | null;
+}>): SessionRecordFixture {
+    const { credentials, metadata, sessionTag, dataKey, binding, ...overrides } = params;
+    const effectiveSessionTag = sessionTag ?? 'fixture-tag';
+    const effectiveDataKey = dataKey ?? getRandomBytes(32);
+    const metadataWithBinding = binding === null
+        ? metadata
+        : {
+            ...metadata,
+            ...buildSessionKeyBindingMetadataField(
+                binding ?? { sessionId: overrides.id, sessionTag: effectiveSessionTag },
+            ),
+        };
+    return createSessionRecordFixture({
+        ...overrides,
+        encryptionMode: 'e2ee',
+        metadata: encodeBase64(encrypt(effectiveDataKey, 'dataKey', metadataWithBinding)),
+        dataEncryptionKey: encodeBase64(sealOwnerSessionDataKeyEnvelope({
+            material: credentials.encryption,
+            sessionTag: effectiveSessionTag,
+            dataKey: effectiveDataKey,
+            randomBytes: getRandomBytes,
+        })),
+    });
 }

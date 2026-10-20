@@ -13,7 +13,6 @@ import { registerHappierMcpBuiltInTools } from '@/mcp/server/registerHappierMcpB
 import type { Credentials } from '@/persistence';
 import { createCliActionExecutorHarness } from '@/session/actions/createCliActionExecutorHarness';
 import { createDaemonMemoryActionDeps } from '@/session/actions/createDaemonMemoryActionDeps';
-import { resolveSessionEncryptionContextFromCredentials } from '@/session/transport/encryption/sessionEncryptionContext';
 import { callMachineRpc } from '@/session/transport/rpc/machineRpc';
 import {
   PromptRegistryInstallRequestV1Schema,
@@ -79,9 +78,6 @@ export function createHappierMcpServer(
     actionSettingsProvider,
     surface: toolSurface,
   });
-  const ctx = credentials
-    ? resolveSessionEncryptionContextFromCredentials(credentials)
-    : { encryptionKey: new Uint8Array(0), encryptionVariant: 'legacy' as const };
 
   const mcp = new McpServer({
     name: 'Happier MCP',
@@ -149,7 +145,6 @@ export function createHappierMcpServer(
       token: credentials?.token ?? '',
       ...(credentials ? { credentials } : {}),
       sessionId: client.sessionId,
-      ctx,
       rawSession,
       getCallerPermissionMode: () => resolveLiveClientPermissionMode(client, sessionMetadataSnapshot),
       getCurrentSessionBackendTarget: () => resolveLiveClientBackendTarget(client),

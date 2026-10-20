@@ -27,6 +27,7 @@ import { createTerminalAttachmentId, readTerminalAttachmentInfo, writeTerminalAt
 import { buildTerminalHostHandleFromAttachmentMetadata } from '@/agent/runtime/terminal/attachmentMetadata';
 import { withConfiguredDaemonTestHome } from '@/daemon/testkit/fakeDaemonLifecycle.testkit';
 import { acquireSessionRunnerLock } from '@/daemon/sessionRunnerLock';
+import { configuration, reloadConfiguration } from '@/configuration';
 
 import { handleAttachCommand } from './attach';
 
@@ -107,9 +108,15 @@ describe('happier attach', () => {
         if (typeof acknowledge === 'function') acknowledge({ ok: true, result: true });
       },
     }));
+    // These flows exercise attach routing, not encryption policy. The configuration
+    // singleton is read at call time, so pin it directly (env stubs cannot reach it).
+    vi.stubEnv('HAPPIER_ENCRYPTION_REQUIREMENT', 'follow_account');
+    Object.assign(configuration, { clientEncryptionRequirement: 'follow_account' });
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
+    reloadConfiguration();
     if (previousManagedServerStatePath === undefined) {
       delete process.env.HAPPIER_OPENCODE_SERVER_STATE_PATH;
     } else {

@@ -1,145 +1,104 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { sealSessionDataKeyFixture, sealBoundSessionRowFixture } from '@/dev/testkit/fixtures/sessionEncryption';
+import { encodeBase64 } from '@/encryption/base64';
+import { Encryption } from '@/sync/encryption/encryption';
+import { resetServerReachabilitySupervisors } from '@/sync/runtime/connectivity/serverReachabilitySupervisorPool';
+
 import { resetScopedSessionDataKeyCacheForTests, resolveScopedSessionDataKey } from './resolveScopedSessionDataKey';
+import { resolveScopedPendingSessionEncryption } from './resolveScopedPendingSessionEncryption';
 
 const runtimeFetchMock = vi.hoisted(() => vi.fn());
+vi.mock('@/utils/system/runtimeFetch', () => ({ runtimeFetch: (...args: unknown[]) => runtimeFetchMock(...args) }));
 
-vi.mock('@/utils/system/runtimeFetch', () => ({
-  runtimeFetch: (...args: unknown[]) => runtimeFetchMock(...args),
-}));
-
-const validSessionById = {
-  id: 'session-1',
-  seq: 1,
-  createdAt: 1,
-  updatedAt: 1,
-  active: true,
-  activeAt: 1,
-  archivedAt: null,
-  metadata: 'metadata',
-  metadataVersion: 1,
-  agentState: null,
-  agentStateVersion: 0,
-  pendingCount: 0,
-  pendingVersion: 0,
-  dataEncryptionKey: 'k1',
+const row = {
+  id: 'session-1', seq: 1, createdAt: 1, updatedAt: 1, active: true, activeAt: 1,
+  archivedAt: null, metadata: 'metadata', metadataVersion: 1, agentState: null,
+  agentStateVersion: 0, pendingCount: 0, pendingVersion: 0,
 };
 
-describe('resolveScopedSessionDataKey', () => {
+async function boundRow(encryption: Encryption, dataKey: Uint8Array, sessionId = row.id) {
+  const bound = await sealBoundSessionRowFixture({ encryption, sessionId, dataKey, metadata: { path: '/repo' } });
+  return { ...row, id: sessionId, ...bound };
+}
+
+function respond(body: unknown, status = 200) {
+  runtimeFetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+    if (/\/(health|v1\/auth\/ping)$/.test(String(input))) return new Response('{}', { status: 200 });
+    return new Response(JSON.stringify(body), { status });
+  });
+}
+
+describe('scoped session key authentication', () => {
   afterEach(async () => {
     runtimeFetchMock.mockReset();
     resetScopedSessionDataKeyCacheForTests();
-    try {
-      const { resetServerReachabilitySupervisors } = await import('@/sync/runtime/connectivity/serverReachabilitySupervisorPool');
-      await resetServerReachabilitySupervisors();
-    } catch {
-      // ignore
-    }
+    await resetServerReachabilitySupervisors();
   });
 
-  it('loads and decrypts the session data encryption key from a valid by-id response', async () => {
-    runtimeFetchMock.mockImplementation(async (input: RequestInfo | URL) => {
-      const url = typeof input === 'string' ? input : String(input);
-      if (url.endsWith('/health') || url.endsWith('/v1/auth/ping')) {
-        return { ok: true, status: 200, json: async () => ({}) };
+  it.each(['authenticated', 'legacy', 'missing', 'transplant', 'response-id', 'unavailable'] as const)(
+    'requires authenticated context before scoped pending authoring: %s', async (kind) => {
+      const encryption = await Encryption.create(new Uint8Array(32).fill(7));
+      const dataKey = new Uint8Array(32).fill(9);
+      const envelope = kind === 'legacy'
+        ? encodeBase64(await encryption.encryptEncryptionKey(dataKey), 'base64')
+        : kind === 'missing' ? null : sealSessionDataKeyFixture({ encryption, dataKey });
+      // A transplanted row carries another session's ID binding inside valid ciphertext.
+      const bound = kind === 'authenticated' || kind === 'transplant'
+        ? await sealBoundSessionRowFixture({
+          encryption, dataKey,
+          sessionId: kind === 'transplant' ? 'other' : row.id,
+          metadata: { path: '/repo' },
+        })
+        : null;
+      respond({ session: {
+        ...row,
+        id: kind === 'response-id' ? 'other' : row.id,
+        ...(bound ? { dataEncryptionKey: bound.dataEncryptionKey, metadata: bound.metadata } : { dataEncryptionKey: envelope }),
+      } }, kind === 'unavailable' ? 500 : 200);
+      const context = {
+        scope: 'scoped' as const, targetServerId: 'server', targetServerUrl: 'https://server.example.test',
+        targetAccountId: 'account', token: 'synthetic-token', timeoutMs: 1000, encryption,
+      };
+      const pending = resolveScopedPendingSessionEncryption({ context, sessionId: row.id });
+      if (kind === 'authenticated') {
+        const session = await pending;
+        const message = { role: 'user' as const, content: { type: 'text' as const, text: 'trusted input' } };
+        expect(await session.decryptRaw(await session.encryptRawRecord(message))).toEqual(message);
+      } else if (kind === 'unavailable') {
+        await expect(pending).rejects.toThrow('Session encryption unavailable');
+        expect(encryption.getSessionEncryption(row.id)).toBeNull();
+      } else {
+        await expect(pending).rejects.toMatchObject({ code: 'SESSION_KEY_AUTHENTICATION_FAILED', retryable: false });
+        expect(encryption.getSessionEncryption(row.id)).toBeNull();
       }
-      return { ok: true, status: 200, json: async () => ({ session: validSessionById }) };
-    });
-    const decrypt = vi.fn(async () => new Uint8Array([9, 9]));
+    },
+  );
 
-    const key = await resolveScopedSessionDataKey({
-      serverId: 's-id',
-      serverUrl: 'https://server.example.test',
-      token: 'token',
-      sessionId: 'session-1',
-      decryptEncryptionKey: decrypt,
+  it('does not reuse a cached key after envelope replacement or secret rotation with the same token', async () => {
+    const encryption = await Encryption.create(new Uint8Array(32).fill(7));
+    const dataKey = new Uint8Array(32).fill(9);
+    const bound = await sealBoundSessionRowFixture({ encryption, dataKey, sessionId: row.id, metadata: { path: '/repo' } });
+    respond({ session: { ...row, ...bound } });
+    const params = {
+      serverId: 'server', serverUrl: 'https://server.example.test', token: 'token', sessionId: row.id,
+      encryption,
+    };
+    await expect(resolveScopedSessionDataKey(params)).resolves.toEqual(dataKey);
+    const other = await Encryption.create(new Uint8Array(32).fill(8));
+    await expect(resolveScopedSessionDataKey({ ...params, encryption: other })).rejects.toMatchObject({
+      code: 'SESSION_KEY_AUTHENTICATION_FAILED',
     });
-
-    expect(runtimeFetchMock.mock.calls.some(([input]) => String(input).includes('/v2/sessions/session-1'))).toBe(true);
-    expect(decrypt).toHaveBeenCalledWith('k1');
-    expect(key).toEqual(new Uint8Array([9, 9]));
+    respond({ session: { ...row, dataEncryptionKey: null } });
+    await expect(resolveScopedSessionDataKey(params)).rejects.toMatchObject({ code: 'SESSION_KEY_AUTHENTICATION_FAILED' });
   });
 
-  it('returns null and does not call decryption for an invalid by-id shape', async () => {
-    runtimeFetchMock.mockImplementation(async (input: RequestInfo | URL) => {
-      const url = typeof input === 'string' ? input : String(input);
-      if (url.endsWith('/health') || url.endsWith('/v1/auth/ping')) {
-        return { ok: true, status: 200, json: async () => ({}) };
-      }
-      return { ok: true, status: 200, json: async () => ({ session: { id: 'session-1', dataEncryptionKey: 'k1' } }) };
-    });
-
-    const decrypt = vi.fn(async () => new Uint8Array([9]));
-
-    const key = await resolveScopedSessionDataKey({
-      serverId: 's-id',
-      serverUrl: 'https://server.example.test',
-      token: 'token',
-      sessionId: 'session-1',
-      decryptEncryptionKey: decrypt,
-      timeoutMs: 10,
-    });
-
-    expect(key).toBeNull();
-    expect(decrypt).not.toHaveBeenCalled();
-  });
-
-  it('does not cache transient failures', async () => {
-    runtimeFetchMock.mockImplementation(async (input: RequestInfo | URL) => {
-      const url = typeof input === 'string' ? input : String(input);
-      if (url.endsWith('/health') || url.endsWith('/v1/auth/ping')) {
-        return { ok: true, status: 200, json: async () => ({}) };
-      }
-      return { ok: false, status: 500, json: async () => ({}) };
-    });
-    const decrypt = vi.fn(async () => new Uint8Array([9]));
-
-    const first = await resolveScopedSessionDataKey({
-      serverId: 's-id',
-      serverUrl: 'https://server.example.test',
-      token: 'token',
-      sessionId: 'session-1',
-      decryptEncryptionKey: decrypt,
-      timeoutMs: 10,
-    });
-    const second = await resolveScopedSessionDataKey({
-      serverId: 's-id',
-      serverUrl: 'https://server.example.test',
-      token: 'token',
-      sessionId: 'session-1',
-      decryptEncryptionKey: decrypt,
-      timeoutMs: 10,
-    });
-
-    expect(first).toBeNull();
-    expect(second).toBeNull();
-    expect(decrypt).not.toHaveBeenCalled();
-    expect(runtimeFetchMock.mock.calls.filter(([input]) => String(input).includes('/v2/sessions/session-1')).length).toBe(2);
-  });
-
-  it('throws terminal auth instead of returning an unknown key for scoped 401 responses', async () => {
-    runtimeFetchMock.mockImplementation(async (input: RequestInfo | URL) => {
-      const url = typeof input === 'string' ? input : String(input);
-      if (url.endsWith('/health') || url.endsWith('/v1/auth/ping')) {
-        return { ok: true, status: 200, json: async () => ({}) };
-      }
-      return { ok: false, status: 401, json: async () => ({}) };
-    });
-    const decrypt = vi.fn(async () => new Uint8Array([9]));
-
+  it('preserves terminal HTTP authentication failures', async () => {
+    respond({}, 401);
+    const encryption = await Encryption.create(new Uint8Array(32).fill(7));
     await expect(resolveScopedSessionDataKey({
-      serverId: 's-id',
-      serverUrl: 'https://server.example.test',
-      token: 'token',
-      sessionId: 'session-1',
-      decryptEncryptionKey: decrypt,
-      timeoutMs: 10,
-    })).rejects.toMatchObject({
-      name: 'HappyError',
-      kind: 'auth',
-      code: 'not_authenticated',
-    });
-
-    expect(decrypt).not.toHaveBeenCalled();
+      serverId: 'server', serverUrl: 'https://server.example.test', token: 'token', sessionId: row.id,
+      encryption,
+    })).rejects.toMatchObject({ code: 'not_authenticated' });
   });
 });

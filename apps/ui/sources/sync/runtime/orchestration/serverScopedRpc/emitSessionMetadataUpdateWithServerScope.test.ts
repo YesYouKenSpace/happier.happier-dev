@@ -48,6 +48,7 @@ describe('emitSessionMetadataUpdateWithServerScope', () => {
 
         const result = await emitSessionMetadataUpdateWithServerScope({
             sessionId: 'session-1',
+            encryptionMode: 'e2ee',
             expectedVersion: 3,
             metadata: 'ciphertext',
             timeoutMs: 4000,
@@ -83,6 +84,7 @@ describe('emitSessionMetadataUpdateWithServerScope', () => {
 
         const promise = emitSessionMetadataUpdateWithServerScope({
             sessionId: 'session-1',
+            encryptionMode: 'e2ee',
             expectedVersion: 3,
             metadata: 'ciphertext',
             timeoutMs: 10,
@@ -125,6 +127,7 @@ describe('emitSessionMetadataUpdateWithServerScope', () => {
 
         const result = await emitSessionMetadataUpdateWithServerScope({
             sessionId: 'session-1',
+            encryptionMode: 'e2ee',
             expectedVersion: 3,
             metadata: 'ciphertext',
             timeoutMs: 5000,

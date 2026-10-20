@@ -1,16 +1,29 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { configuration } from '@/configuration';
+import { resolveSessionEncryptionContext } from '@/api/client/encryptionKey';
+import { encodeBase64 } from '@/api/encryption';
 
 import type { Credentials } from '@/persistence';
-import { encryptSessionPayload, type SessionEncryptionContext } from '@/session/transport/encryption/sessionEncryptionContext';
+import { buildSessionKeyBindingMetadataField } from '@happier-dev/protocol';
+import { encryptSessionPayload, encryptStoredSessionPayload } from '@/session/transport/encryption/sessionEncryptionContext';
 import { createSessionRecordFixture } from '@/testkit/backends/sessionFixtures';
 
 describe('getMemoryWindow', () => {
+  const previousRequirement = configuration.clientEncryptionRequirement;
+  beforeEach(() => Object.assign(configuration, { clientEncryptionRequirement: 'follow_account' }));
+  afterEach(() => Object.assign(configuration, { clientEncryptionRequirement: previousRequirement }));
   it('decrypts a bounded transcript range and returns a redacted snippet window', async () => {
     const { getMemoryWindow } = await import('./getMemoryWindow');
 
     const key = new Uint8Array(32).fill(7);
     const credentials: Credentials = { token: 't', encryption: { type: 'legacy', secret: key } };
-    const ctx: SessionEncryptionContext = { encryptionKey: key, encryptionVariant: 'legacy' };
+    const ctx = resolveSessionEncryptionContext(credentials, 'tag');
+
+    const metadataCiphertext = encryptStoredSessionPayload({
+      mode: 'e2ee',
+      ctx,
+      payload: { flavor: 'claude', ...buildSessionKeyBindingMetadataField({ sessionId: 'sess-1', sessionTag: 'tag' }) },
+    });
 
     const ciphertext1 = encryptSessionPayload({
       ctx,
@@ -28,7 +41,7 @@ describe('getMemoryWindow', () => {
       seqTo: 2,
       paddingMessages: 0,
       deps: {
-        fetchSessionById: async () => createSessionRecordFixture({ id: 'sess-1', active: true, activeAt: 1, metadata: 'b64' }),
+        fetchSessionById: async () => createSessionRecordFixture({ id: 'sess-1', active: true, activeAt: 1, metadata: metadataCiphertext, dataEncryptionKey: encodeBase64(ctx.dataEncryptionKey!) }),
         fetchEncryptedTranscriptMessagesPage: async () => ({
           hasMore: false,
           nextBeforeSeq: null,
@@ -61,7 +74,7 @@ describe('getMemoryWindow', () => {
       seqTo: 2,
       paddingMessages: 0,
       deps: {
-        fetchSessionById: async () => createSessionRecordFixture({ id: 'sess-plain', active: true, activeAt: 1, metadata: '{}' }),
+        fetchSessionById: async () => createSessionRecordFixture({ id: 'sess-plain', active: true, activeAt: 1, metadata: '{}', encryptionMode: 'plain' }),
         fetchEncryptedTranscriptMessagesPage: async () => ({
           hasMore: false,
           nextBeforeSeq: null,
@@ -101,7 +114,7 @@ describe('getMemoryWindow', () => {
       seqTo: 2,
       paddingMessages: 0,
       deps: {
-        fetchSessionById: async () => createSessionRecordFixture({ id: 'sess-provider', active: true, activeAt: 1, metadata: '{}' }),
+        fetchSessionById: async () => createSessionRecordFixture({ id: 'sess-provider', active: true, activeAt: 1, metadata: '{}', encryptionMode: 'plain' }),
         fetchEncryptedTranscriptMessagesPage: async () => ({
           hasMore: false,
           nextBeforeSeq: null,
@@ -149,7 +162,7 @@ describe('getMemoryWindow', () => {
         includeToolOutputs: false,
       },
       deps: {
-        fetchSessionById: async () => createSessionRecordFixture({ id: 'sess-reasoning', active: true, activeAt: 1, metadata: '{}' }),
+        fetchSessionById: async () => createSessionRecordFixture({ id: 'sess-reasoning', active: true, activeAt: 1, metadata: '{}', encryptionMode: 'plain' }),
         fetchEncryptedTranscriptMessagesPage: async () => ({
           hasMore: false,
           nextBeforeSeq: null,
@@ -191,7 +204,7 @@ describe('getMemoryWindow', () => {
       seqTo: 2,
       paddingMessages: 0,
       deps: {
-        fetchSessionById: async () => createSessionRecordFixture({ id: 'sess-events', active: true, activeAt: 1, metadata: '{}' }),
+        fetchSessionById: async () => createSessionRecordFixture({ id: 'sess-events', active: true, activeAt: 1, metadata: '{}', encryptionMode: 'plain' }),
         fetchEncryptedTranscriptMessagesPage: async () => ({
           hasMore: false,
           nextBeforeSeq: null,

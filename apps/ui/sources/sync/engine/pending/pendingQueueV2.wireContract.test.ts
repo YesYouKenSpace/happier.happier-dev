@@ -11,7 +11,7 @@ import {
     retryPendingOutboxOperationV2,
     updatePendingRequestedActionV2,
 } from './pendingQueueV2';
-import { buildSession, createPendingQueueEncryption, resetPendingQueueState } from './pendingQueueV2.testHelpers';
+import { buildSession, createPendingQueueEncryption, permitPlainPendingForScope, resetPendingQueueState } from './pendingQueueV2.testHelpers';
 
 const outboxScope = { serverId: 'server-a', accountId: 'account-a' } as const;
 
@@ -40,6 +40,7 @@ function releasedAck(localId: string): Response {
 describe('Pending queue HTTP wire contract', () => {
     beforeEach(() => {
         resetPendingQueueState();
+        permitPlainPendingForScope(outboxScope);
     });
 
     it('emits only the immutable released ordinary enqueue shape and accepts its released ACK', async () => {

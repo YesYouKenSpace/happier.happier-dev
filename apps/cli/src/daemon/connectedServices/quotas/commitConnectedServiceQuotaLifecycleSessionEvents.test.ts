@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import axios from 'axios';
 
 import { createEnvKeyScope } from '@/testkit/env/envScope';
@@ -37,9 +37,11 @@ const CREDENTIALS = {
 } as const;
 
 describe('commitConnectedServiceQuotaLifecycleSessionEvents', () => {
+  beforeEach(() => vi.stubEnv('HAPPIER_ENCRYPTION_REQUIREMENT', 'follow_account'));
   let envScope = createEnvKeyScope(['HAPPIER_SERVER_URL']);
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     envScope.restore();
     envScope = createEnvKeyScope(['HAPPIER_SERVER_URL']);
     vi.restoreAllMocks();
@@ -51,7 +53,9 @@ describe('commitConnectedServiceQuotaLifecycleSessionEvents', () => {
     vi.resetModules();
     const { commitConnectedServiceQuotaLifecycleSessionEvents } = await import('./commitConnectedServiceQuotaLifecycleSessionEvents');
 
-    vi.spyOn(axios, 'get').mockResolvedValue(PLAIN_SESSION_RESPONSE);
+    vi.spyOn(axios, 'get').mockImplementation(async (url) => ({
+      ...PLAIN_SESSION_RESPONSE, data: { session: { ...PLAIN_SESSION_RESPONSE.data.session, id: url.split('/').at(-1) } },
+    }));
     const postSpy = vi.spyOn(axios, 'post').mockResolvedValue(COMMIT_RESPONSE);
 
     await commitConnectedServiceQuotaLifecycleSessionEvents({
@@ -282,7 +286,9 @@ describe('commitConnectedServiceQuotaLifecycleSessionEvents', () => {
     vi.resetModules();
     const { commitConnectedServiceQuotaLifecycleSessionEvents } = await import('./commitConnectedServiceQuotaLifecycleSessionEvents');
 
-    vi.spyOn(axios, 'get').mockResolvedValue(PLAIN_SESSION_RESPONSE);
+    vi.spyOn(axios, 'get').mockImplementation(async (url) => ({
+      ...PLAIN_SESSION_RESPONSE, data: { session: { ...PLAIN_SESSION_RESPONSE.data.session, id: url.split('/').at(-1) } },
+    }));
     const postSpy = vi.spyOn(axios, 'post')
       .mockRejectedValueOnce(new Error('boom'))
       .mockResolvedValue(COMMIT_RESPONSE);

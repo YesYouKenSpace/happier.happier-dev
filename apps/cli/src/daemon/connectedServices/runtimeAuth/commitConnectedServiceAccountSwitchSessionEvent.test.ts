@@ -1,13 +1,15 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import axios from 'axios';
 import { ConnectedServiceIdSchema } from '@happier-dev/protocol';
 
 import { createEnvKeyScope } from '@/testkit/env/envScope';
 
 describe('commitConnectedServiceAccountSwitchSessionEvent', () => {
+  beforeEach(() => vi.stubEnv('HAPPIER_ENCRYPTION_REQUIREMENT', 'follow_account'));
   let envScope = createEnvKeyScope(['HAPPIER_SERVER_URL']);
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     envScope.restore();
     envScope = createEnvKeyScope(['HAPPIER_SERVER_URL']);
     vi.restoreAllMocks();

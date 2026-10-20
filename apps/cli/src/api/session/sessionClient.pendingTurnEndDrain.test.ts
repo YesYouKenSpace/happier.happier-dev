@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import axios from 'axios';
+import { configuration, reloadConfiguration } from '@/configuration';
 
 import { MessageQueue2 } from '@/agent/runtime/modeMessageQueue';
 import { createSessionProviderInputConsumer } from '@/agent/runtime/sessionInput/SessionProviderInputConsumer';
@@ -354,6 +355,10 @@ describe('ApiSessionClient pending-queue turn-end drain', () => {
   }, 120_000);
 
   beforeEach(() => {
+    // Drain mechanics, not encryption policy; run permissive under the fork default.
+    // The configuration singleton is read at call time, so pin it directly too.
+    vi.stubEnv('HAPPIER_ENCRYPTION_REQUIREMENT', 'follow_account');
+    Object.assign(configuration, { clientEncryptionRequirement: 'follow_account' });
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
       features: {
         sharing: {
@@ -414,6 +419,7 @@ describe('ApiSessionClient pending-queue turn-end drain', () => {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    reloadConfiguration();
   });
 
   it('blocks a contract-invalid provider action before invoking provider input', async () => {

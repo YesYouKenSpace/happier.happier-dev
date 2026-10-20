@@ -24,14 +24,14 @@ import type { ConnectedServiceRuntimeAuthRecoveryTranscriptEventV1 } from './pro
 
 function buildStoredContent(params: Readonly<{
   credentials: Credentials;
-  rawSession: Awaited<ReturnType<typeof fetchSessionById>>;
+  rawSession: NonNullable<Awaited<ReturnType<typeof fetchSessionById>>>;
   payload: unknown;
 }>): SessionStoredMessageContent {
-  const mode = resolveSessionStoredContentEncryptionMode(params.rawSession ?? undefined);
+  const mode = resolveSessionStoredContentEncryptionMode(params.rawSession);
+  const ctx = resolveSessionEncryptionContextFromCredentials(params.credentials, params.rawSession);
   if (mode === 'plain') {
     return { t: 'plain', v: params.payload };
   }
-  const ctx = resolveSessionEncryptionContextFromCredentials(params.credentials, params.rawSession ?? undefined);
   return {
     t: 'encrypted',
     c: encryptSessionPayload({ ctx, payload: params.payload }),

@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { configuration } from '@/configuration';
 import { captureConsoleJsonOutput } from '@/testkit/logger/captureOutput';
 
 const execute = vi.fn();
@@ -20,6 +21,15 @@ vi.mock('@/session/transport/http/sessionsHttp', () => ({
 }));
 
 describe('happier session run start (action executor)', () => {
+  // Routing mechanics, not encryption policy; run permissive under the fork default.
+  const previousRequirement = configuration.clientEncryptionRequirement;
+  beforeEach(() => {
+    Object.assign(configuration, { clientEncryptionRequirement: 'follow_account' });
+  });
+  afterEach(() => {
+    Object.assign(configuration, { clientEncryptionRequirement: previousRequirement });
+  });
+
   it('routes through ActionExecutor with the expected action id and args', async () => {
     execute.mockResolvedValueOnce({
       ok: true,

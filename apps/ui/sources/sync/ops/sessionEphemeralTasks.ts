@@ -1,6 +1,7 @@
 import type { EphemeralTaskRunRequest, EphemeralTaskRunResponse } from '@happier-dev/protocol';
 import { SESSION_RPC_METHODS } from '@happier-dev/protocol/rpc';
 import { readRpcErrorCode } from '@happier-dev/protocol/rpcErrors';
+import { isUiClientEncryptionRequirementError } from '@/sync/domains/settings/clientEncryptionRequirement';
 
 import { sessionRpcWithServerScope } from '@/sync/runtime/orchestration/serverScopedRpc/serverScopedSessionRpc';
 import { resolvePreferredServerIdForSessionId } from '@/sync/runtime/orchestration/serverScopedRpc/resolvePreferredServerIdForSessionId';
@@ -30,7 +31,7 @@ export async function sessionEphemeralTaskRun(
         return {
             ok: false,
             error: error instanceof Error ? error.message : 'Unknown error',
-            errorCode: readRpcErrorCode(error),
+            errorCode: isUiClientEncryptionRequirementError(error) ? error.code : readRpcErrorCode(error),
         };
     }
 }

@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { createDeferred } from '@/dev/testkit';
+import { saveAccountSettings } from '@/sync/domains/state/accountSettingsPersistence';
+import { settingsDefaults } from '@/sync/domains/settings/settings';
 import { storage } from '@/sync/domains/state/storage';
 import type { ServerAccountScope } from '@/sync/domains/scope/serverAccountScope';
 import type { DiscardedPendingMessage } from '@/sync/domains/state/storageTypes';
@@ -120,6 +122,13 @@ function insertEditablePendingMessage(sessionId: string): void {
 describe('pendingQueueV2 error handling', () => {
     beforeEach(() => {
         resetPendingQueueState();
+        // Scoped plaintext issuance requires a resolvable requirement for the target
+        // account's own persisted record; these mechanics tests opt their scope out.
+        saveAccountSettings({ serverId: 'server-a', accountId: 'account-a' }, {
+            ...settingsDefaults,
+            clientEncryptionRequirementV1: 'follow_account',
+            clientEncryptionRequirementLocalV1: 'follow_account',
+        }, 1);
     });
 
     it.each([

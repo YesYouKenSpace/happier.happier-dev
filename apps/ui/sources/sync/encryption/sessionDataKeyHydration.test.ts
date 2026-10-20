@@ -1,123 +1,111 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
-import {
-    createSessionDataKeyHydrationPlan,
-    hydrateSessionDataKeys,
-    type SessionDataKeyHydrationEncryption,
-} from './sessionDataKeyHydration';
+import { sealSessionDataKeyFixture } from '@/dev/testkit/fixtures/sessionEncryption';
+import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 
-function createEncryption(): SessionDataKeyHydrationEncryption & {
-    decryptEncryptionKeys: ReturnType<typeof vi.fn>;
-} {
-    const decryptEncryptionKeys = vi.fn(async (values: readonly string[]) =>
-        values.map((value) => new Uint8Array([value.length])),
-    );
-    return { decryptEncryptionKeys };
-}
+import { Encryption } from './encryption';
+import { createSessionDataKeyHydrationPlan, hydrateSessionDataKeys } from './sessionDataKeyHydration';
 
-describe('session data key hydration plan', () => {
-    it('opens every encrypted row envelope in a single batch', async () => {
-        const encryption = createEncryption();
+describe('session data key hydration', () => {
+    it('opens the same account envelope for each row id; row-identity binding is enforced at metadata decrypt', async () => {
+        const encryption = await Encryption.create(new Uint8Array(32).fill(7));
+        const dataKey = new Uint8Array(32).fill(9);
+        const envelope = sealSessionDataKeyFixture({ encryption, dataKey });
         const sessionDataKeys = new Map<string, Uint8Array>();
         const sessionDataKeyEnvelopes = new Map<string, string>();
-        const plan = createSessionDataKeyHydrationPlan({
-            sessions: [
-                { id: 'a', encryptionMode: 'e2ee', dataEncryptionKey: 'env-a' },
-                { id: 'b', encryptionMode: 'e2ee', dataEncryptionKey: 'env-bb' },
-                { id: 'c', encryptionMode: 'plain', dataEncryptionKey: null },
-            ],
-            sessionDataKeys,
-            sessionDataKeyEnvelopes,
-        });
-
-        expect(plan.dataKeyDecryptCount).toBe(2);
-        expect(plan.plainCount).toBe(1);
-
         const result = await hydrateSessionDataKeys({
-            plan,
+            plan: createSessionDataKeyHydrationPlan({
+                sessions: [
+                    { id: 'owner', dataEncryptionKey: envelope },
+                    { id: 'second', dataEncryptionKey: envelope },
+                    { id: 'plain', encryptionMode: 'plain' },
+                ],
+                sessionDataKeys,
+                sessionDataKeyEnvelopes,
+            }),
             encryption,
             sessionDataKeys,
             sessionDataKeyEnvelopes,
         });
 
-        // One call, not one per row: a single-item batch falls under the native
-        // crypto worker's minPayloadBytes and silently takes the JS path.
-        expect(encryption.decryptEncryptionKeys).toHaveBeenCalledTimes(1);
-        expect(encryption.decryptEncryptionKeys.mock.calls[0]?.[0]).toEqual(['env-a', 'env-bb']);
-        expect(Array.from(result.sessionKeys.keys())).toEqual(['a', 'b']);
-        expect(result.sessionEncryptionClears).toEqual([]);
+        expect(result.sessionKeys).toEqual(new Map([['owner', dataKey], ['second', dataKey]]));
+        expect(sessionDataKeyEnvelopes).toEqual(new Map([['owner', envelope], ['second', envelope]]));
     });
 
-    it('reuses a cached key whose wrapped envelope is unchanged instead of reopening it', async () => {
-        const encryption = createEncryption();
-        const cachedKey = new Uint8Array([9]);
-        const sessionDataKeys = new Map<string, Uint8Array>([['cached', cachedKey]]);
-        const sessionDataKeyEnvelopes = new Map<string, string>([['cached', 'env-cached']]);
-        const plan = createSessionDataKeyHydrationPlan({
-            sessions: [{ id: 'cached', encryptionMode: 'e2ee', dataEncryptionKey: 'env-cached' }],
-            sessionDataKeys,
-            sessionDataKeyEnvelopes,
-        });
+    it.each(['missing', 'malformed', 'legacy', 'wrong-account', 'tampered'] as const)(
+        'rejects %s envelopes and clears a previously usable key', async (kind) => {
+            const encryption = await Encryption.create(new Uint8Array(32).fill(7));
+            const dataKey = new Uint8Array(32).fill(9);
+            const oldEnvelope = sealSessionDataKeyFixture({ encryption, dataKey });
+            let envelope: string | null = null;
+            if (kind === 'malformed') envelope = 'not-an-envelope';
+            if (kind === 'legacy') envelope = encodeBase64(await encryption.encryptEncryptionKey(dataKey), 'base64');
+            if (kind === 'wrong-account') {
+                const other = await Encryption.create(new Uint8Array(32).fill(8));
+                envelope = sealSessionDataKeyFixture({ encryption: other, dataKey });
+            }
+            if (kind === 'tampered') {
+                const bytes = decodeBase64(oldEnvelope, 'base64');
+                bytes[bytes.length - 1] ^= 1;
+                envelope = encodeBase64(bytes, 'base64');
+            }
+            await encryption.initializeSessions(new Map([['owner', dataKey]]));
+            const sessionDataKeys = new Map([['owner', dataKey]]);
+            const sessionDataKeyEnvelopes = new Map([['owner', oldEnvelope]]);
+            const result = await hydrateSessionDataKeys({
+                plan: createSessionDataKeyHydrationPlan({
+                    sessions: [{ id: 'owner', dataEncryptionKey: envelope }],
+                    sessionDataKeys,
+                    sessionDataKeyEnvelopes,
+                }),
+                encryption,
+                sessionDataKeys,
+                sessionDataKeyEnvelopes,
+            });
 
-        expect(plan.cachedDataKeyHits).toBe(1);
-        expect(plan.dataKeyDecryptCount).toBe(0);
+            expect(result.sessionKeys.size).toBe(0);
+            expect(result.sessionEncryptionClears).toContain('owner');
+            expect(sessionDataKeys.size).toBe(0);
+            expect(sessionDataKeyEnvelopes.size).toBe(0);
+            expect(encryption.getSessionEncryption('owner')).toBeNull();
+        },
+    );
 
-        const result = await hydrateSessionDataKeys({
-            plan,
-            encryption,
-            sessionDataKeys,
-            sessionDataKeyEnvelopes,
-        });
-
-        expect(encryption.decryptEncryptionKeys).not.toHaveBeenCalled();
-        expect(result.sessionKeys.get('cached')).toBe(cachedKey);
-        expect(result.sessionEncryptionClears).toEqual([]);
+    it('reuses unchanged authenticated keys and replaces rotated keys', async () => {
+        const encryption = await Encryption.create(new Uint8Array(32).fill(7));
+        const sessionDataKeys = new Map<string, Uint8Array>();
+        const sessionDataKeyEnvelopes = new Map<string, string>();
+        for (const dataKey of [new Uint8Array(32).fill(1), new Uint8Array(32).fill(2)]) {
+            const envelope = sealSessionDataKeyFixture({ encryption, dataKey });
+            const params = { sessions: [{ id: 'owner', dataEncryptionKey: envelope }], sessionDataKeys, sessionDataKeyEnvelopes };
+            const result = await hydrateSessionDataKeys({
+                plan: createSessionDataKeyHydrationPlan(params), encryption, sessionDataKeys, sessionDataKeyEnvelopes,
+            });
+            await encryption.initializeSessions(result.sessionKeys);
+            const cached = createSessionDataKeyHydrationPlan(params);
+            expect(cached.cachedDataKeyHits).toBe(1);
+            const repeated = await hydrateSessionDataKeys({ plan: cached, encryption, sessionDataKeys, sessionDataKeyEnvelopes });
+            expect(repeated.sessionKeys.get('owner')).toBe(sessionDataKeys.get('owner'));
+            expect(sessionDataKeys.get('owner')).toEqual(dataKey);
+        }
     });
 
-    it('reopens the envelope when the wrapped key rotated, ignoring the stale cached key', async () => {
-        const encryption = createEncryption();
-        const sessionDataKeys = new Map<string, Uint8Array>([['rotated', new Uint8Array([9])]]);
-        const sessionDataKeyEnvelopes = new Map<string, string>([['rotated', 'env-old']]);
-        const plan = createSessionDataKeyHydrationPlan({
-            sessions: [{ id: 'rotated', encryptionMode: 'e2ee', dataEncryptionKey: 'env-rotated' }],
-            sessionDataKeys,
-            sessionDataKeyEnvelopes,
-        });
-
-        expect(plan.cachedDataKeyHits).toBe(0);
-        expect(plan.dataKeyDecryptCount).toBe(1);
-
+    it('does not treat a scoped foreign-account key as authenticated on the active server', async () => {
+        const encryption = await Encryption.create(new Uint8Array(32).fill(7));
+        const foreign = await Encryption.create(new Uint8Array(32).fill(8));
+        const dataKey = new Uint8Array(32).fill(9);
+        const envelope = sealSessionDataKeyFixture({ encryption: foreign, dataKey });
+        await encryption.initializeSessions(new Map([['owner', dataKey]]), { serverId: 'foreign-server' });
+        const sessionDataKeys = new Map([['owner', dataKey]]);
+        const sessionDataKeyEnvelopes = new Map([['owner', envelope]]);
         const result = await hydrateSessionDataKeys({
-            plan,
-            encryption,
-            sessionDataKeys,
-            sessionDataKeyEnvelopes,
+            plan: createSessionDataKeyHydrationPlan({
+                sessions: [{ id: 'owner', dataEncryptionKey: envelope }], sessionDataKeys, sessionDataKeyEnvelopes,
+            }),
+            encryption, sessionDataKeys, sessionDataKeyEnvelopes, scope: { serverId: 'active-server' },
         });
-
-        expect(encryption.decryptEncryptionKeys.mock.calls[0]?.[0]).toEqual(['env-rotated']);
-        expect(result.sessionKeys.get('rotated')).toEqual(new Uint8Array(['env-rotated'.length]));
-        expect(sessionDataKeyEnvelopes.get('rotated')).toBe('env-rotated');
-    });
-
-    it('clears runtime encryption for an encrypted row the server stopped sending a key for', async () => {
-        const encryption = createEncryption();
-        const sessionDataKeys = new Map<string, Uint8Array>([['dropped', new Uint8Array([1])]]);
-        const sessionDataKeyEnvelopes = new Map<string, string>([['dropped', 'env-old']]);
-        const plan = createSessionDataKeyHydrationPlan({
-            sessions: [{ id: 'dropped', encryptionMode: 'e2ee', dataEncryptionKey: null }],
-            sessionDataKeys,
-            sessionDataKeyEnvelopes,
-        });
-
-        const result = await hydrateSessionDataKeys({
-            plan,
-            encryption,
-            sessionDataKeys,
-            sessionDataKeyEnvelopes,
-        });
-
-        expect(result.sessionEncryptionClears).toEqual(['dropped']);
-        expect(sessionDataKeys.has('dropped')).toBe(false);
-        expect(sessionDataKeyEnvelopes.has('dropped')).toBe(false);
+        expect(result.sessionKeys.size).toBe(0);
+        expect(sessionDataKeys.size).toBe(0);
+        expect(encryption.getSessionEncryption('owner')).toBeNull();
     });
 });

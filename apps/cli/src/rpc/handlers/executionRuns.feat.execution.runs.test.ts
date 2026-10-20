@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { AgentBackend, AgentMessage, AgentMessageHandler, SessionId } from '@/agent/core/AgentBackend';
 import type { ACPMessageData } from '@/api/session/sessionMessageTypes';
@@ -72,6 +72,12 @@ const registerExecutionRunHandlers: typeof registerExecutionRunHandlersBase = (r
   });
 
 beforeEach(async () => {
+  // Voice-replay mechanics, not encryption policy; run permissive under the fork
+  // default. The configuration singleton is read at call time, so pin both it
+  // and the env (re-imported modules construct from the env).
+  vi.stubEnv('HAPPIER_ENCRYPTION_REQUIREMENT', 'follow_account');
+  const { configuration } = await import('@/configuration');
+  Object.assign(configuration, { clientEncryptionRequirement: 'follow_account' });
   const { readCredentials } = await import('@/persistence');
   const { fetchSessionById } = await import('@/session/transport/http/sessionsHttp');
   const { fetchEncryptedTranscriptMessages } = await import('@/session/replay/fetchEncryptedTranscriptMessages');
@@ -80,6 +86,12 @@ beforeEach(async () => {
   vi.mocked(fetchSessionById).mockReset();
   vi.mocked(fetchEncryptedTranscriptMessages).mockReset();
   vi.mocked(runReplaySummaryForDialog).mockReset();
+});
+
+afterEach(async () => {
+  vi.unstubAllEnvs();
+  const { configuration } = await import('@/configuration');
+  reloadConfiguration();
 });
 
 function createStaticBackend(responseText: string): AgentBackend {

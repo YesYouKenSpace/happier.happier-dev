@@ -1,4 +1,7 @@
 import { Encryption } from '@/sync/encryption/encryption';
+import { saveAccountSettings } from '@/sync/domains/state/accountSettingsPersistence';
+import { settingsDefaults } from '@/sync/domains/settings/settings';
+import type { ServerAccountScope } from '@/sync/domains/scope/serverAccountScope';
 import { storage } from '@/sync/domains/state/storage';
 import type { Session } from '@/sync/domains/state/storageTypes';
 import type { RawRecord } from '@/sync/typesRaw';
@@ -55,12 +58,26 @@ export function resetPendingQueueState(): void {
     storage.setState(initialStorageState, true);
 }
 
+/**
+ * Persist an explicit plaintext opt-out for a server-account scope. Scoped plaintext
+ * issuance requires a resolvable requirement for the target account's own record;
+ * pending mechanics tests that are not about requirement policy call this for the
+ * scopes they drive so the guard under test is the queue behavior, not the floor.
+ */
+export function permitPlainPendingForScope(scope: ServerAccountScope): void {
+    saveAccountSettings(scope, {
+        ...settingsDefaults,
+        clientEncryptionRequirementV1: 'follow_account',
+        clientEncryptionRequirementLocalV1: 'follow_account',
+    }, 1);
+}
+
 export async function createPendingQueueEncryption(params: {
     sessionId: string;
     seedByte?: number;
 }): Promise<Encryption> {
     const encryption = await Encryption.create(new Uint8Array(32).fill(params.seedByte ?? 3));
-    await encryption.initializeSessions(new Map([[params.sessionId, null]]));
+    await encryption.initializeSessions(new Map([[params.sessionId, new Uint8Array(32).fill(9)]]));
     return encryption;
 }
 

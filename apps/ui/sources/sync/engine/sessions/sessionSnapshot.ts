@@ -1574,7 +1574,7 @@ export async function fetchAndApplySessions(params: {
     }
     const { sessionKeys, sessionEncryptionClears } = keyHydration;
     for (const sessionId of sessionEncryptionClears) {
-        encryption.removeSessionEncryption(sessionId);
+        params.log.log(`[sessions] SESSION_KEY_AUTHENTICATION_FAILED: ${sessionId}`);
     }
     if (sessionKeys.size > 0) {
         await syncPerformanceTelemetry.measureAsync(

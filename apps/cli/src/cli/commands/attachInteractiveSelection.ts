@@ -134,6 +134,7 @@ export async function buildAttachSelectionModelFromSessions(params: Readonly<
 
   for (const rawSession of params.sessions) {
     const rowModel = buildCliSessionRowModel({ credentials: params.credentials, rawSession });
+    if (!rowModel.metadataAvailable) continue;
     if (rowModel.isSystem) continue;
 
     const localInfo = await params.readTerminalAttachmentInfoFn({

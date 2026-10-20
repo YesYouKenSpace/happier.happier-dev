@@ -20,6 +20,22 @@ import { fetchSessionSnapshotUpdateFromServer } from './snapshotSync';
 import { encodeBase64, encrypt } from '../encryption';
 
 describe('snapshotSync.fetchSessionSnapshotUpdateFromServer', () => {
+    it('rejects a relay plaintext downgrade before consuming metadata with a pinned encrypted session context', async () => {
+        vi.spyOn(axios, 'get').mockResolvedValueOnce({
+            status: 200,
+            data: { session: createSessionRecordFixture({
+                id: 's1', encryptionMode: 'plain', metadataVersion: 9,
+                metadata: JSON.stringify({ path: '/relay-chosen', permissionMode: 'yolo' }),
+            }) },
+        });
+        const input = {
+            token: 'synthetic-token', sessionId: 's1', sessionEncryptionMode: 'e2ee' as const,
+            encryptionKey: new Uint8Array(32).fill(7), encryptionVariant: 'dataKey' as const,
+            currentMetadataVersion: 0, currentAgentStateVersion: 0,
+        };
+        await expect(fetchSessionSnapshotUpdateFromServer(input))
+            .rejects.toMatchObject({ code: 'SESSION_KEY_AUTHENTICATION_FAILED', retryable: false });
+    });
     it('parses plaintext metadata/agentState when session encryptionMode is plain', async () => {
         const getSpy = vi.spyOn(axios, 'get');
         getSpy.mockResolvedValueOnce({
@@ -37,6 +53,7 @@ describe('snapshotSync.fetchSessionSnapshotUpdateFromServer', () => {
         } as any);
 
         const res = await fetchSessionSnapshotUpdateFromServer({
+            sessionEncryptionMode: 'plain',
             token: 't',
             sessionId: 's1',
             encryptionKey: new Uint8Array(32),
@@ -71,6 +88,7 @@ describe('snapshotSync.fetchSessionSnapshotUpdateFromServer', () => {
     } as any);
 
     const res = await fetchSessionSnapshotUpdateFromServer({
+      sessionEncryptionMode: 'e2ee',
       token: 't',
       sessionId: 's1',
       encryptionKey: new Uint8Array(32),
@@ -103,6 +121,7 @@ describe('snapshotSync.fetchSessionSnapshotUpdateFromServer', () => {
     } as any);
 
     const res = await fetchSessionSnapshotUpdateFromServer({
+      sessionEncryptionMode: 'e2ee',
       token: 't',
       sessionId: 's1',
       encryptionKey: new Uint8Array(32),
@@ -160,6 +179,7 @@ describe('snapshotSync.fetchSessionSnapshotUpdateFromServer', () => {
     } as any);
 
     const res = await fetchSessionSnapshotUpdateFromServer({
+      sessionEncryptionMode: 'e2ee',
       token: 't',
       sessionId: 's1',
       encryptionKey: new Uint8Array(32),
@@ -181,6 +201,7 @@ describe('snapshotSync.fetchSessionSnapshotUpdateFromServer', () => {
     getSpy.mockReturnValue(pendingResponse as ReturnType<typeof axios.get>);
 
     const first = fetchSessionSnapshotUpdateFromServer({
+      sessionEncryptionMode: 'plain',
       token: 't',
       sessionId: 's1',
       encryptionKey: new Uint8Array(32),
@@ -189,6 +210,7 @@ describe('snapshotSync.fetchSessionSnapshotUpdateFromServer', () => {
       currentAgentStateVersion: 0,
     });
     const second = fetchSessionSnapshotUpdateFromServer({
+      sessionEncryptionMode: 'plain',
       token: 't',
       sessionId: 's1',
       encryptionKey: new Uint8Array(32),
@@ -238,6 +260,7 @@ describe('snapshotSync.fetchSessionSnapshotUpdateFromServer', () => {
     } as any);
 
     const res = await fetchSessionSnapshotUpdateFromServer({
+      sessionEncryptionMode: 'plain',
       token: 't',
       sessionId: 's1',
       encryptionKey: new Uint8Array(32),
@@ -273,6 +296,7 @@ describe('snapshotSync.fetchSessionSnapshotUpdateFromServer', () => {
             } as any);
 
         const res = await fetchSessionSnapshotUpdateFromServer({
+            sessionEncryptionMode: 'e2ee',
             token: 't',
             sessionId: 's1',
             encryptionKey: new Uint8Array(32),
@@ -302,6 +326,7 @@ describe('snapshotSync.fetchSessionSnapshotUpdateFromServer', () => {
         } as any);
 
         const res = await fetchSessionSnapshotUpdateFromServer({
+            sessionEncryptionMode: 'e2ee',
             token: 't',
             sessionId: 's1',
             encryptionKey: new Uint8Array(32),
@@ -333,6 +358,7 @@ describe('snapshotSync.fetchSessionSnapshotUpdateFromServer', () => {
     } as any);
 
     const res = await fetchSessionSnapshotUpdateFromServer({
+      sessionEncryptionMode: 'e2ee',
       token: 't',
       sessionId: 's1',
       encryptionKey,

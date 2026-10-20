@@ -17,13 +17,14 @@ import { ApiMachineClient } from './apiMachine';
 import { decodeBase64, encodeBase64, encrypt, decrypt } from './encryption';
 import { PushNotificationClient } from './pushNotifications';
 import { configuration } from '@/configuration';
-import { assertSessionEncryptionModeAllowedByEffectiveClientRequirement } from '@/settings/accountSettings/resolveEffectiveClientEncryptionRequirement';
 import { Credentials } from '@/persistence';
 
 import { resolveSessionEncryptionContext } from './client/encryptionKey';
 import { resolveMachineRegistrationContent, resolvePublishedMachineContent } from './machine/resolveMachineRegistrationContent';
 import { decodeMachineStoredContent, encodeMachineStoredContent } from './machine/machineStoredContent';
 import { openSessionDataEncryptionKey } from './client/openSessionDataEncryptionKey';
+import { ensureOwnerSessionKeyBinding } from '@/session/transport/http/sessionsHttp';
+import { assertSessionEncryptionModeAllowedByEffectiveClientRequirement } from '@/settings/accountSettings/resolveEffectiveClientEncryptionRequirement';
 import { serializeAxiosErrorForLog } from './client/serializeAxiosErrorForLog';
 import { logServerEndpointFailure } from './client/serverEndpointFailureLog';
 import { HttpStatusError } from './client/httpStatusError';
@@ -75,6 +76,9 @@ import {
   StoredJsonContentEnvelopeSchema,
   splitProviderAccountUsageSupplementalFacets,
   readServerEnabledBit,
+  SessionKeyAuthenticationError,
+  SessionKeyBindingPendingError,
+  splitProviderAccountUsageSubscription,
   PROVIDER_ACCOUNT_SUBSCRIPTION_ACCEPT,
 } from '@happier-dev/protocol';
 import type {
@@ -423,7 +427,7 @@ export class ApiClient {
       featuresTimeoutMs: configuration.sessionControlHttpTimeoutMs,
       accountTimeoutMs: configuration.sessionControlHttpTimeoutMs,
     });
-    const encryptionContext = desiredSessionEncryptionMode === 'e2ee' ? resolveSessionEncryptionContext(this.credential) : null;
+    const encryptionContext = desiredSessionEncryptionMode === 'e2ee' ? resolveSessionEncryptionContext(this.credential, opts.tag) : null;
     const encryptSessionPayload = (value: unknown): string => {
       if (!encryptionContext) throw new Error('Session encryption material is unavailable');
       return encodeBase64(encrypt(encryptionContext.encryptionKey, encryptionContext.encryptionVariant, value));
@@ -491,46 +495,47 @@ export class ApiClient {
         )
 
         logger.debug(`Session created/loaded: ${response.data.session.id} (tag: ${opts.tag})`)
-        let raw = response.data.session;
+        const raw = response.data.session;
 
       const sessionEncryptionMode: 'e2ee' | 'plain' =
         (raw as any)?.encryptionMode === 'plain' ? 'plain' : 'e2ee';
       assertSessionEncryptionModeAllowedByEffectiveClientRequirement(sessionEncryptionMode);
 
-      // Prefer the session's published data key, but keep backward compatibility with
-      // older sessions that have no dataEncryptionKey (machineKey-as-session-key fallback).
-      const readEncryptionContext = sessionEncryptionMode === 'e2ee' ? encryptionContext ?? resolveSessionEncryptionContext(this.credential) : null;
-      let sessionEncryptionKey = readEncryptionContext?.encryptionKey;
-      const encryptionVariant = readEncryptionContext?.encryptionVariant;
-      if (sessionEncryptionMode === 'e2ee' && this.credential.encryption?.type === 'dataKey') {
-        const serverEncryptedDataKeyRaw = (raw as any).dataEncryptionKey;
+      let sessionEncryptionKey: Uint8Array;
+      let metadata: Metadata;
+      if (sessionEncryptionMode === 'plain') {
+        sessionEncryptionKey = new Uint8Array(0);
+        metadata = JSON.parse(String(raw.metadata ?? 'null'));
+      } else {
         const opened = openSessionDataEncryptionKey({
           credential: this.credential,
-          encryptedDataEncryptionKeyBase64: serverEncryptedDataKeyRaw,
+          expectedSessionTag: opts.tag,
+          encryptedDataEncryptionKeyBase64: (raw as any).dataEncryptionKey,
         });
-        if (typeof serverEncryptedDataKeyRaw === 'string' && serverEncryptedDataKeyRaw.trim().length > 0 && !opened) {
-          logger.debug('[API] Failed to open session dataEncryptionKey (dataKey account)', {
-            sessionId: raw.id,
-          });
-          throw new Error('Failed to open session dataEncryptionKey');
-        }
-        sessionEncryptionKey = opened ?? this.credential.encryption.machineKey;
+        if (!opened) throw new SessionKeyAuthenticationError();
+        sessionEncryptionKey = opened.dataKey;
+        // Self-heals the create→patch binding window and relay replays of pre-binding metadata.
+        const ensured = await ensureOwnerSessionKeyBinding({
+          token: this.credential.token,
+          encryptionKey: opened.dataKey,
+          encryptionVariant: 'dataKey',
+          rawSession: { id: raw.id, metadata: raw.metadata, metadataVersion: raw.metadataVersion },
+          envelopeSessionTag: opened.sessionTag,
+        });
+        metadata = ensured.metadataRecord as Metadata;
       }
       const decryptSessionPayload = (value: string): unknown => {
-        if (!sessionEncryptionKey || !encryptionVariant) throw new Error('Session encryption material is unavailable');
-        return decrypt(sessionEncryptionKey, encryptionVariant, decodeBase64(value));
+        if (!sessionEncryptionKey) throw new Error('Session encryption material is unavailable');
+        return decrypt(sessionEncryptionKey, 'dataKey', decodeBase64(value));
       };
 
-	      const metadata = normalizeSessionMetadataForRead<Metadata>(
-	        sessionEncryptionMode === 'plain'
-	          ? JSON.parse(String(raw.metadata ?? 'null'))
-	          : decryptSessionPayload(raw.metadata));
-	      const agentState =
-	        !raw.agentState
-	          ? null
-	          : sessionEncryptionMode === 'plain'
-	            ? JSON.parse(String(raw.agentState))
-	            : decryptSessionPayload(raw.agentState);
+      metadata = normalizeSessionMetadataForRead<Metadata>(metadata);
+      const agentState =
+        !raw.agentState
+          ? null
+          : sessionEncryptionMode === 'plain'
+            ? JSON.parse(String(raw.agentState))
+            : decryptSessionPayload(raw.agentState);
 
 	      if (sessionEncryptionMode === 'plain') {
 	        return {
@@ -552,13 +557,14 @@ export class ApiClient {
 	        ...readSessionRuntimeActivityProjectionBoundary(raw),
 	        encryptionMode: 'e2ee' as const,
 	        encryptionKey: sessionEncryptionKey,
-	        encryptionVariant,
+	        encryptionVariant: 'dataKey' as const,
 	        metadata,
 	        metadataVersion: raw.metadataVersion,
 	        agentState,
 	        agentStateVersion: raw.agentStateVersion,
 	      };
 	      } catch (error) {
+	        if (error instanceof SessionKeyAuthenticationError || error instanceof SessionKeyBindingPendingError) throw error;
         const status = axios.isAxiosError(error) ? error.response?.status : undefined;
         const isRetryable5xx = typeof status === 'number' && status >= 500 && status < 600;
         if (isRetryable5xx && attempt < retryMaxAttempts) {

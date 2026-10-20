@@ -1,5 +1,5 @@
 import { normalizeVoiceAgentTurnTranscriptText, type HappierReplayDialogItem } from '@happier-dev/agents';
-import { SessionSynopsisV1Schema, VoiceAgentTurnV1Schema } from '@happier-dev/protocol';
+import { SessionKeyAuthenticationError, SessionSynopsisV1Schema, VoiceAgentTurnV1Schema } from '@happier-dev/protocol';
 
 import { isAuthenticationError } from '@/api/client/httpStatusError';
 import type { Credentials } from '@/persistence';
@@ -54,10 +54,11 @@ export async function hydrateVoiceReplayDialogFromTranscript(params: Readonly<{
   maxTextChars?: number;
 }>): Promise<{ dialog: HappierReplayDialogItem[]; sourceCutoffSeqInclusive: number; synopsisText?: string | null } | null> {
   const session = await fetchSessionById({ token: params.credentials.token, sessionId: params.previousSessionId }).catch((error) => {
-    if (isAuthenticationError(error)) throw error;
+    if (isAuthenticationError(error) || error instanceof SessionKeyAuthenticationError) throw error;
     return null;
   });
   if (!session) return null;
+  const ctx = resolveSessionEncryptionContextFromCredentials(params.credentials, session);
 
   const sessionSeq =
     typeof (session as any)?.seq === 'number' && Number.isFinite((session as any).seq) ? Math.max(0, Math.floor((session as any).seq)) : 0;
@@ -72,7 +73,6 @@ export async function hydrateVoiceReplayDialogFromTranscript(params: Readonly<{
   });
   if (!rows) return null;
 
-  const ctx = resolveSessionEncryptionContextFromCredentials(params.credentials, session as any);
   const encryptionMode = resolveSessionStoredContentEncryptionMode(session as any);
   const systemRecordSynopsis = await tryHydrateSynopsisFromSystemRecord({
     credentials: params.credentials,

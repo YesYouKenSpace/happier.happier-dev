@@ -1,7 +1,7 @@
 import type { Credentials } from '@/persistence';
 import { requireEncryptionCredentials } from '@/persistence';
 
-import { sealEncryptedDataKeyEnvelopeV1 } from '@happier-dev/protocol';
+import { sealEncryptedDataKeyEnvelopeV1, sealOwnerSessionDataKeyEnvelope } from '@happier-dev/protocol';
 import { getRandomBytes } from '../encryption';
 
 export type EncryptionContext = {
@@ -10,30 +10,16 @@ export type EncryptionContext = {
   dataEncryptionKey: Uint8Array | null;
 };
 
-export function resolveSessionEncryptionContext(credential: Credentials): EncryptionContext {
+export function resolveSessionEncryptionContext(credential: Credentials, sessionTag: string): EncryptionContext {
   requireEncryptionCredentials(credential);
-  // Resolve encryption key
-  let dataEncryptionKey: Uint8Array | null = null;
-  let encryptionKey: Uint8Array;
-  let encryptionVariant: 'legacy' | 'dataKey';
-
-  if (credential.encryption.type === 'dataKey') {
-    // Use a per-session key for session message encryption (AES-256-GCM).
-    encryptionKey = getRandomBytes(32);
-    encryptionVariant = 'dataKey';
-
-    // Publish the per-session key encrypted for the account's content keypair public key.
-    dataEncryptionKey = sealEncryptedDataKeyEnvelopeV1({
-      dataKey: encryptionKey,
-      recipientPublicKey: credential.encryption.publicKey,
-      randomBytes: getRandomBytes,
-    });
-  } else {
-    encryptionKey = credential.encryption.secret;
-    encryptionVariant = 'legacy';
-  }
-
-  return { encryptionKey, encryptionVariant, dataEncryptionKey };
+  const encryptionKey = getRandomBytes(32);
+  const dataEncryptionKey = sealOwnerSessionDataKeyEnvelope({
+    material: credential.encryption,
+    sessionTag,
+    dataKey: encryptionKey,
+    randomBytes: getRandomBytes,
+  });
+  return { encryptionKey, encryptionVariant: 'dataKey', dataEncryptionKey };
 }
 
 export function resolveMachineEncryptionContext(credential: Credentials): EncryptionContext {

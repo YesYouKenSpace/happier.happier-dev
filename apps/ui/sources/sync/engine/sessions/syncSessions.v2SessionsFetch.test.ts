@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { AuthCredentials } from '@/auth/storage/tokenStorage';
-import { encodeBase64 } from '@/encryption/base64';
 import {
     buildSessionListRenderableFromSession,
     preserveSessionListRenderableStaleFields,
@@ -9,6 +8,7 @@ import {
 } from '@/sync/domains/session/listing/sessionListRenderable';
 import type { Session } from '@/sync/domains/state/storageTypes';
 import { Encryption } from '@/sync/encryption/encryption';
+import { sealSessionDataKeyFixture } from '@/dev/testkit/fixtures/sessionEncryption';
 import { syncPerformanceTelemetry } from '@/sync/runtime/syncPerformanceTelemetry';
 import { HappyError } from '@/utils/errors/errors';
 import { encodeV2SessionListCursorV1, type V2SessionRecord } from '@happier-dev/protocol';
@@ -36,7 +36,6 @@ const MERGED_INITIAL_PAGE_PATH = '/v2/sessions?includeActive=true&includeAttenti
 
 type SessionRow = V2SessionRecord;
 type FetchAndApplySessionsParams = Parameters<typeof fetchAndApplySessions>[0];
-type TestNativeCryptoWorker = NonNullable<Parameters<Encryption['configureNativeCryptoWorker']>[0]['worker']>;
 
 function buildSessionRow(overrides: Partial<SessionRow> & Pick<SessionRow, 'id'>): SessionRow {
     const { id, ...rest } = overrides;
@@ -100,7 +99,7 @@ function createDeferred<T>(): {
 
 type EncryptionHarnessEncryption = Omit<
     SessionListEncryption,
-    'decryptEncryptionKeys' | 'getCurrentEncryptionGenerationScope' | 'isCurrentEncryptionGenerationScope'
+    'getCurrentEncryptionGenerationScope' | 'isCurrentEncryptionGenerationScope'
 > & {
     decryptEncryptionKey: ReturnType<typeof vi.fn>;
     decryptEncryptionKeys: ReturnType<typeof vi.fn>;
@@ -138,6 +137,8 @@ function createEncryptionHarness(): {
     const decryptMetadata = vi.fn(async (_version: number, value: string) => ({ decrypted: value }));
     const decryptAgentState = vi.fn(async () => null);
     const encryption: EncryptionHarnessEncryption = {
+        decryptSessionEncryptionKeys: (rows, scope) => decryptEncryptionKeys(rows.map((row) => row.dataEncryptionKey), scope),
+        hasSessionEncryptionKey: () => Boolean(getSessionEncryption()),
         decryptEncryptionKey,
         decryptEncryptionKeys,
         initializeSessions,
@@ -147,7 +148,7 @@ function createEncryptionHarness(): {
     return { encryption, decryptEncryptionKey, decryptEncryptionKeys, initializeSessions, removeSessionEncryption, getSessionEncryption, decryptMetadata, decryptAgentState };
 }
 
-type SingleDecryptOnlyEncryptionHarness = Omit<SessionListEncryption, 'decryptEncryptionKeys'> & {
+type SingleDecryptOnlyEncryptionHarness = Omit<SessionListEncryption, 'decryptSessionEncryptionKeys'> & {
     decryptEncryptionKey: ReturnType<typeof vi.fn>;
 };
 
@@ -158,6 +159,7 @@ function createSingleDecryptOnlyEncryptionHarness(): {
 } {
     const { decryptEncryptionKey, initializeSessions, removeSessionEncryption, getSessionEncryption } = createEncryptionHarness();
     const singleDecryptOnlyEncryption = {
+        hasSessionEncryptionKey: (sessionId: string) => Boolean(getSessionEncryption(sessionId)),
         decryptEncryptionKey,
         initializeSessions,
         removeSessionEncryption,
@@ -3962,7 +3964,7 @@ describe('fetchAndApplySessions (/v2/sessions snapshot)', () => {
             applySessions: vi.fn(),
             repairInvalidReadStateV1: async () => {},
             log: { log: () => {} },
-        })).rejects.toThrow(/decryptEncryptionKeys/);
+        })).rejects.toThrow(/decryptSessionEncryptionKeys/);
 
         expect(decryptEncryptionKey).not.toHaveBeenCalled();
         expect(initializeSessions).not.toHaveBeenCalled();
@@ -4008,7 +4010,6 @@ describe('fetchAndApplySessions (/v2/sessions snapshot)', () => {
         expectInitializeSessionsCall(initializeSessions, [
             ['s_valid_key', new Uint8Array([9, 9])],
         ]);
-        expect(removeSessionEncryption).toHaveBeenCalledTimes(1);
         expect(removeSessionEncryption).toHaveBeenCalledWith('s_invalid_key');
     });
 
@@ -4301,8 +4302,8 @@ describe('fetchAndApplySessions (/v2/sessions snapshot)', () => {
         decryptDeferred.resolve([new Uint8Array([9, 9, 9])]);
         await fetchPromise;
 
-        expect(sessionDataKeys.get('s_account_switch')).toBe(cachedKey);
-        expect(sessionDataKeyEnvelopes.get('s_account_switch')).toBe('old-account-envelope');
+        expect(sessionDataKeys.has('s_account_switch')).toBe(false);
+        expect(sessionDataKeyEnvelopes.has('s_account_switch')).toBe(false);
         expect(initializeSessions).not.toHaveBeenCalled();
     });
 
@@ -4376,70 +4377,23 @@ describe('fetchAndApplySessions (/v2/sessions snapshot)', () => {
         ], { serverId: 'server-superseded' });
     });
 
-    it('aborts inactive session-list data-key hydration before queued native work dispatches', async () => {
+    it('does not publish inactive authenticated reference batches', async () => {
         const encryption = await Encryption.create(new Uint8Array(32).fill(4));
-        const firstDataKey = new Uint8Array(32).fill(10);
-        const secondDataKey = new Uint8Array(32).fill(20);
-        const firstEnvelope = encodeBase64(await encryption.encryptEncryptionKey(firstDataKey), 'base64');
-        const secondEnvelope = encodeBase64(await encryption.encryptEncryptionKey(secondDataKey), 'base64');
-        const firstDispatch = createDeferred<{
-            status: 'ok';
-            source: 'native';
-            items: readonly string[];
-        }>();
-        const nativeDispatches: string[][] = [];
-        const worker: TestNativeCryptoWorker = {
-            async probe() {
-                return {
-                    available: true,
-                    failureReason: 0,
-                    nativeVersion: 1,
-                };
-            },
-            async decryptDataKeyEnvelopeV1(request) {
-                nativeDispatches.push(request.items.map((item) => item.envelopeBase64));
-                if (nativeDispatches.length === 1) {
-                    return firstDispatch.promise;
-                }
-                return {
-                    status: 'ok',
-                    source: 'native',
-                    items: [encodeBase64(secondDataKey, 'base64')],
-                };
-            },
-            async decryptSecretboxJson() {
-                throw new Error('decryptSecretboxJson should not be called');
-            },
-            async decryptAesGcmJson() {
-                throw new Error('decryptAesGcmJson should not be called');
-            },
-        };
-        encryption.configureNativeCryptoWorker({
-            worker,
-            routing: {
-                mode: 'require',
-                maxBatchSize: 1,
-                minPayloadBytes: 0,
-            },
-            scope: {
-                accountId: 'account-native-queue-abort',
-                serverId: 'server-native-queue-abort',
-                generation: 0,
-            },
+        const dataKey = new Uint8Array(32).fill(10);
+        const sessions = Array.from({ length: 65 }, (_, index) => {
+            const id = `s_abort_${index}`;
+            return buildSessionRow({ id, dataEncryptionKey: sealSessionDataKeyFixture({ encryption, dataKey }) });
         });
         const requestSpy = vi.fn(async () =>
             jsonResponse({
-                sessions: [
-                    buildSessionRow({ id: 's_native_abort_first', dataEncryptionKey: firstEnvelope }),
-                    buildSessionRow({ id: 's_native_abort_second', dataEncryptionKey: secondEnvelope }),
-                ],
+                sessions,
                 nextCursor: null,
                 hasNext: false,
             }),
         );
         const sessionDataKeys = new Map<string, Uint8Array>();
-        const initializeSessions = vi.spyOn(encryption, 'initializeSessions');
         let active = true;
+        setTimeout(() => { active = false; }, 0);
 
         const fetchPromise = fetchAndApplySessions({
             serverId: 'server-native-queue-abort',
@@ -4453,18 +4407,10 @@ describe('fetchAndApplySessions (/v2/sessions snapshot)', () => {
             log: { log: () => {} },
         });
 
-        await expect.poll(() => nativeDispatches.length).toBe(1);
-        active = false;
-        firstDispatch.resolve({
-            status: 'ok',
-            source: 'native',
-            items: [encodeBase64(firstDataKey, 'base64')],
-        });
         await fetchPromise;
 
-        expect(nativeDispatches).toEqual([[firstEnvelope]]);
         expect(sessionDataKeys.size).toBe(0);
-        expect(initializeSessions).not.toHaveBeenCalled();
+        expect(sessions.every((row) => encryption.getSessionEncryption(row.id) === null)).toBe(true);
     });
 
     it('does not update data-key caches when the account scope changes mid-batch', async () => {
@@ -4506,8 +4452,8 @@ describe('fetchAndApplySessions (/v2/sessions snapshot)', () => {
         decryptDeferred.resolve([new Uint8Array([3, 3, 3])]);
         await fetchPromise;
 
-        expect(sessionDataKeys.get('s_account_scope_switch')).toBe(cachedKey);
-        expect(sessionDataKeyEnvelopes.get('s_account_scope_switch')).toBe('old-account-scope-envelope');
+        expect(sessionDataKeys.has('s_account_scope_switch')).toBe(false);
+        expect(sessionDataKeyEnvelopes.has('s_account_scope_switch')).toBe(false);
         expect(initializeSessions).not.toHaveBeenCalled();
     });
 
@@ -4550,12 +4496,12 @@ describe('fetchAndApplySessions (/v2/sessions snapshot)', () => {
         decryptDeferred.resolve([new Uint8Array([8, 8, 8])]);
         await fetchPromise;
 
-        expect(sessionDataKeys.get('s_server_switch')).toBe(cachedKey);
-        expect(sessionDataKeyEnvelopes.get('s_server_switch')).toBe('old-server-envelope');
+        expect(sessionDataKeys.has('s_server_switch')).toBe(false);
+        expect(sessionDataKeyEnvelopes.has('s_server_switch')).toBe(false);
         expect(initializeSessions).not.toHaveBeenCalled();
     });
 
-    it('does not clear data-key caches when deletion invalidates generation mid-batch', async () => {
+    it('does not restore replaced data-key caches when deletion invalidates generation mid-batch', async () => {
         const requestSpy = vi.fn(async () =>
             jsonResponse({
                 sessions: [
@@ -4594,8 +4540,8 @@ describe('fetchAndApplySessions (/v2/sessions snapshot)', () => {
         decryptDeferred.resolve([null]);
         await fetchPromise;
 
-        expect(sessionDataKeys.get('s_deleted_mid_batch')).toBe(cachedKey);
-        expect(sessionDataKeyEnvelopes.get('s_deleted_mid_batch')).toBe('old-deleted-envelope');
+        expect(sessionDataKeys.has('s_deleted_mid_batch')).toBe(false);
+        expect(sessionDataKeyEnvelopes.has('s_deleted_mid_batch')).toBe(false);
         expect(initializeSessions).not.toHaveBeenCalled();
     });
 
@@ -4635,11 +4581,13 @@ describe('fetchAndApplySessions (/v2/sessions snapshot)', () => {
 
         await expect.poll(() => decryptEncryptionKeys.mock.calls.length).toBe(1);
         scope.bumpGeneration();
+        sessionDataKeys.set('s_rotated_mid_batch', cachedKey);
+        sessionDataKeyEnvelopes.set('s_rotated_mid_batch', 'current-rotated-envelope');
         decryptDeferred.resolve([new Uint8Array([7, 7, 7])]);
         await fetchPromise;
 
         expect(sessionDataKeys.get('s_rotated_mid_batch')).toBe(cachedKey);
-        expect(sessionDataKeyEnvelopes.get('s_rotated_mid_batch')).toBe('old-rotated-envelope');
+        expect(sessionDataKeyEnvelopes.get('s_rotated_mid_batch')).toBe('current-rotated-envelope');
         expect(initializeSessions).not.toHaveBeenCalled();
     });
 

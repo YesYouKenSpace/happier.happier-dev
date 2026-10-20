@@ -6,9 +6,17 @@ import {
   createSessionRecordFixture,
 } from '@/testkit/backends/sessionFixtures';
 
-import { fetchSessionByIdCompat } from './sessionsHttp';
+import { fetchSessionById, fetchSessionByIdCompat } from './sessionsHttp';
 
 describe('sessionControl.sessionsHttp.fetchSessionByIdCompat', () => {
+  it.each([fetchSessionById, fetchSessionByIdCompat])('rejects a substituted by-ID response', async (fetchSession) => {
+    vi.spyOn(axios, 'get').mockResolvedValueOnce({
+      status: 200,
+      data: { session: createSessionRecordFixture({ id: 'other-session' }) },
+    });
+    await expect(fetchSession({ token: 'synthetic-token', sessionId: 'requested-session' }))
+      .rejects.toMatchObject({ code: 'SESSION_KEY_AUTHENTICATION_FAILED', retryable: false });
+  });
   it('surfaces HTTP 426 as a typed terminal upgrade requirement', async () => {
     vi.spyOn(axios, 'get').mockResolvedValueOnce({
       status: 426,

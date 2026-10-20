@@ -9,6 +9,7 @@ import { getActiveServerSnapshot } from '@/sync/domains/server/serverRuntime';
 import { resolveSocketIoTransports } from '@/sync/runtime/socketIoTransports';
 import { syncPerformanceTelemetry } from '@/sync/runtime/syncPerformanceTelemetry';
 import { storage } from '@/sync/domains/state/storage';
+import { assertUiSessionEncryptionModeAllowed, resolveUiClientEncryptionRequirement } from '@/sync/domains/settings/clientEncryptionRequirement';
 import { canonicalizeServerUrl, createServerUrlComparableKey } from '@/sync/domains/server/url/serverUrlCanonical';
 import {
     type ManagedConnectionState,
@@ -338,6 +339,11 @@ class ApiSocket {
         options?: { timeoutMs?: number | null; onIssued?: () => void },
     ): Promise<R> {
         const sessionEncryptionMode = readSessionEncryptionModeFromLocalState(sessionId);
+        const settings = storage.getState().settings;
+        assertUiSessionEncryptionModeAllowed({
+            mode: sessionEncryptionMode === 'plain' ? 'plain' : 'e2ee',
+            requirement: resolveUiClientEncryptionRequirement({ syncedSettings: settings, localSettings: settings }),
+        });
         const usePlaintextParams = sessionEncryptionMode === 'plain';
         const sessionEncryption = usePlaintextParams ? null : this.encryption?.getSessionEncryption(sessionId);
         if (!usePlaintextParams && !sessionEncryption) throw new Error(`Session encryption not found for ${sessionId}`);

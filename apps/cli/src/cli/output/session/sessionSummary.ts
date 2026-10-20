@@ -1,5 +1,5 @@
 import { requireEncryptionCredentials, type Credentials } from '@/persistence';
-import { tryDecryptSessionMetadata } from '@/session/transport/encryption/sessionEncryptionContext';
+import { readSessionMetadataForPresentation } from '@/session/query/readSessionMetadataForPresentation';
 import type { RawSessionListRow, RawSessionRecord } from '@/session/transport/http/sessionsHttp';
 import { resolvePermissionIntentFromSessionMetadata } from '@happier-dev/agents';
 import {
@@ -31,7 +31,7 @@ export function summarizeSessionRow(params: Readonly<{
     requireEncryptionCredentials(params.credentials);
     encryption = { type: params.credentials.encryption.type };
   }
-  const metadata = tryDecryptSessionMetadata({ credentials: params.credentials, rawSession: params.row });
+  const metadata = readSessionMetadataForPresentation({ credentials: params.credentials, rawSession: params.row });
   const tag = typeof (metadata as any)?.tag === 'string' ? String((metadata as any).tag) : undefined;
   const title = typeof (metadata as any)?.summary?.text === 'string' ? String((metadata as any).summary.text).trim() : undefined;
   const path = typeof (metadata as any)?.path === 'string' ? String((metadata as any).path) : undefined;

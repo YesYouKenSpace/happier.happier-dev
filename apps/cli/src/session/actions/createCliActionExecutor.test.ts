@@ -19,6 +19,7 @@ vi.mock('@/configuration', async () => {
     configuration: {
       ...actual.configuration,
       apiServerUrl: 'http://127.0.0.1:24599',
+      clientEncryptionRequirement: 'follow_account',
     },
   };
 });
@@ -124,12 +125,14 @@ import {
   MENTION_KIND_V1,
   accountSettingsParse,
   buildMentionRefForKindV1,
+  buildSessionKeyBindingMetadataField,
   deriveBoxPublicKeyFromSeed,
   encodeBase64,
   getActionSpec,
   readMentionRefOpaqueForKindV1,
-  sealEncryptedDataKeyEnvelopeV1,
+  sealOwnerSessionDataKeyEnvelope,
 } from '@happier-dev/protocol';
+import { encrypt } from '@/api/encryption';
 import { createPendingFirstInput } from '@/daemon/spawn/pendingFirstInput';
 import { SPAWN_SESSION_ERROR_CODES } from '@/rpc/handlers/registerSessionHandlers';
 
@@ -145,7 +148,7 @@ function createPlainExecutor(extra: Partial<Parameters<typeof createCliActionExe
       token: 'token',
       encryption: {
         type: 'legacy',
-        secret: new Uint8Array([1, 2, 3, 4]),
+        secret: new Uint8Array(32).fill(1),
       },
     },
     sessionId: 'sess-1',
@@ -368,6 +371,7 @@ describe('createCliActionExecutor', () => {
     const executor = createPlainExecutor();
     const rawSession = {
       id: 'sess-2',
+      encryptionMode: 'plain',
       createdAt: 1,
       updatedAt: 2,
       active: true,
@@ -457,6 +461,7 @@ describe('createCliActionExecutor', () => {
     });
     fetchSessionById.mockResolvedValue({
       id: 'sess-1',
+      encryptionMode: 'plain',
       createdAt: 1,
       updatedAt: 2,
       active: true,
@@ -574,6 +579,7 @@ describe('createCliActionExecutor', () => {
     });
     fetchSessionById.mockResolvedValue({
       id: 'sess-1',
+      encryptionMode: 'plain',
       createdAt: 1,
       updatedAt: 2,
       active: true,
@@ -732,6 +738,7 @@ describe('createCliActionExecutor', () => {
 
   it('resolves the stored encryption mode for execution.run.get when targeting a different session id', async () => {
     const executor = createPlainExecutor();
+    const targetKey = new Uint8Array(32).fill(9);
     fetchSessionById.mockResolvedValue({
       id: 'sess-2-aaaaaaaaaaaa',
       createdAt: 1,
@@ -741,7 +748,15 @@ describe('createCliActionExecutor', () => {
       pendingCount: 0,
       metadataVersion: 1,
       encryptionMode: 'e2ee',
-      metadata: {},
+      dataEncryptionKey: encodeBase64(sealOwnerSessionDataKeyEnvelope({
+        material: { type: 'legacy', secret: new Uint8Array(32).fill(1) },
+        sessionTag: 'tag', dataKey: targetKey,
+        randomBytes: (length) => new Uint8Array(length).fill(3),
+      })),
+      metadata: encodeBase64(encrypt(targetKey, 'dataKey', {
+        path: '/synthetic',
+        ...buildSessionKeyBindingMetadataField({ sessionId: 'sess-2-aaaaaaaaaaaa', sessionTag: 'tag' }),
+      })),
     });
     getExecutionRun.mockResolvedValue({ ok: true, runId: 'run-1' });
 
@@ -2281,6 +2296,7 @@ describe('createCliActionExecutor', () => {
     const sessionId = 'sess-current-aaaaaaaaaaaa';
     fetchSessionById.mockResolvedValue({
       id: sessionId,
+      encryptionMode: 'plain',
       createdAt: 1,
       updatedAt: 2,
       active: true,
@@ -2321,9 +2337,10 @@ describe('createCliActionExecutor', () => {
     const machineKey = new Uint8Array(32).fill(7);
     const publicKey = deriveBoxPublicKeyFromSeed(machineKey);
     const sessionDek = new Uint8Array(32).fill(9);
-    const encryptedDek = sealEncryptedDataKeyEnvelopeV1({
+    const encryptedDek = sealOwnerSessionDataKeyEnvelope({
       dataKey: sessionDek,
-      recipientPublicKey: publicKey,
+      material: { type: 'dataKey', machineKey },
+      sessionTag: 'tag',
       randomBytes: (length) => new Uint8Array(length).fill(3),
     });
     const dataEncryptionKey = encodeBase64(encryptedDek, 'base64');
@@ -2336,7 +2353,10 @@ describe('createCliActionExecutor', () => {
       activeAt: 2,
       encryptionMode: 'e2ee',
       dataEncryptionKey,
-      metadata: {},
+      metadata: encodeBase64(encrypt(sessionDek, 'dataKey', {
+        path: '/synthetic',
+        ...buildSessionKeyBindingMetadataField({ sessionId: 'sess-2-aaaaaaaaaaaa', sessionTag: 'tag' }),
+      })),
     });
 
     startExecutionRun.mockResolvedValueOnce({ ok: true, data: { runId: 'run-1' } });

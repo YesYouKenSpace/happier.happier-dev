@@ -1,10 +1,18 @@
 import { createHmac } from 'node:crypto';
 
-import { normalizeSessionMetadataForRead, stringifySerializedJsonValue } from '@happier-dev/protocol';
+import {
+  normalizeSessionMetadataForRead,
+  SessionKeyAuthenticationError,
+  SessionKeyBindingPendingError,
+  readSessionKeyBindingV1,
+  stringifySerializedJsonValue,
+} from '@happier-dev/protocol';
 import { requireEncryptionCredentials, type Credentials } from '@/persistence';
 import { decodeBase64, decrypt, encodeBase64, encrypt, encryptWithDerivedNonce } from '@/api/encryption';
 import { openSessionDataEncryptionKey } from '@/api/client/openSessionDataEncryptionKey';
+import { decryptOwnerSessionMetadataRecord, verifyOwnerSessionKeyBinding } from '@/session/transport/encryption/sessionKeyBinding';
 import { tryParseJsonRecord } from '@/utils/tryParseJsonRecord';
+import { assertSessionEncryptionModeAllowedByEffectiveClientRequirement } from '@/settings/accountSettings/resolveEffectiveClientEncryptionRequirement';
 
 export type EncryptedSessionEncryptionContext = Readonly<{
   encryptionKey: Uint8Array;
@@ -30,9 +38,12 @@ export function resolveSessionStoredContentEncryptionMode(rawSession?: Readonly<
 
 export function resolveSessionEncryptionContextFromCredentials(
   credentials: Credentials,
-  rawSession?: Readonly<{ dataEncryptionKey?: unknown; encryptionMode?: unknown }>,
+  rawSession?: Readonly<{ id?: unknown; metadata?: unknown; dataEncryptionKey?: unknown; encryptionMode?: unknown }>,
+  sessionTag?: string,
 ): SessionEncryptionContext {
-  if (resolveSessionStoredContentEncryptionMode(rawSession) === 'plain' || (!rawSession && !credentials.encryption)) {
+  const mode = resolveSessionStoredContentEncryptionMode(rawSession);
+  assertSessionEncryptionModeAllowedByEffectiveClientRequirement(mode);
+  if (mode === 'plain' || (!rawSession && !credentials.encryption)) {
     return { encryptionKey: null, encryptionVariant: 'plain' };
   }
   requireEncryptionCredentials(credentials);
@@ -40,27 +51,62 @@ export function resolveSessionEncryptionContextFromCredentials(
     return { encryptionKey: credentials.encryption.secret, encryptionVariant: 'legacy' };
   }
 
-  const encryptedDekBase64 =
-    typeof rawSession?.dataEncryptionKey === 'string' ? String(rawSession.dataEncryptionKey).trim() : '';
+  if (typeof rawSession?.id !== 'string' || !rawSession.id) throw new SessionKeyAuthenticationError();
 
-  // Prefer the session's published DEK, but allow machineKey fallback for older sessions.
+  const encryptedDekBase64 =
+    typeof rawSession.dataEncryptionKey === 'string' ? rawSession.dataEncryptionKey.trim() : '';
+
+  if (!encryptedDekBase64) {
+    // Pre-cutover rows carry no envelope; only the account key itself can open them, so a
+    // relay can replay but never forge them. A present-but-unopenable envelope below stays
+    // strictly rejected: anyone holding the account public key can mint those.
+    const fallbackKey = credentials.encryption.type === 'legacy'
+      ? credentials.encryption.secret
+      : credentials.encryption.machineKey;
+    const fallbackVariant: 'legacy' | 'dataKey' = credentials.encryption.type;
+    const metadataBase64 = typeof rawSession.metadata === 'string' ? rawSession.metadata.trim() : '';
+    const record = metadataBase64
+      ? decryptOwnerSessionMetadataRecord({
+        encryptionKey: fallbackKey,
+        encryptionVariant: fallbackVariant,
+        metadataBase64,
+      })
+      : null;
+    if (!record) throw new SessionKeyAuthenticationError();
+    // Bindings postdate these rows, but verify one when present so a tampered row that
+    // still decrypts cannot silently change sessions.
+    const binding = readSessionKeyBindingV1(record);
+    if (binding && binding.sessionId !== rawSession.id) throw new SessionKeyAuthenticationError();
+    return { encryptionKey: fallbackKey, encryptionVariant: fallbackVariant };
+  }
+
   const opened = openSessionDataEncryptionKey({
     credential: credentials,
+    expectedSessionTag: sessionTag,
     encryptedDataEncryptionKeyBase64: encryptedDekBase64 || null,
   });
-
-  return { encryptionKey: opened ?? credentials.encryption.machineKey, encryptionVariant: 'dataKey' };
+  if (!opened) throw new SessionKeyAuthenticationError();
+  // The metadata ciphertext authenticates the ID binding under the envelope's key; without
+  // it a relay could serve another session's consistent row under the requested ID.
+  verifyOwnerSessionKeyBinding({
+    encryptionKey: opened.dataKey,
+    encryptionVariant: 'dataKey',
+    rawSession,
+    envelopeSessionTag: opened.sessionTag,
+  });
+  return { encryptionKey: opened.dataKey, encryptionVariant: 'dataKey' };
 }
 
 export function tryDecryptSessionMetadata(params: Readonly<{
   credentials: Credentials;
-  rawSession: Readonly<{ metadata?: unknown; dataEncryptionKey?: unknown; encryptionMode?: unknown }>;
+  rawSession: Readonly<{ id?: unknown; metadata?: unknown; dataEncryptionKey?: unknown; encryptionMode?: unknown }>;
 }>): Record<string, unknown> | null {
   const encryptedMetadataBase64 =
     typeof params.rawSession.metadata === 'string' ? String(params.rawSession.metadata).trim() : '';
   if (!encryptedMetadataBase64) return null;
 
   const mode = resolveSessionStoredContentEncryptionMode(params.rawSession);
+  assertSessionEncryptionModeAllowedByEffectiveClientRequirement(mode);
   if (mode === 'plain') {
     try {
       return normalizeSessionMetadataForRead(tryParseJsonRecord(encryptedMetadataBase64));
@@ -69,12 +115,24 @@ export function tryDecryptSessionMetadata(params: Readonly<{
     }
   }
 
-  const ctx = resolveSessionEncryptionContextFromCredentials(
-    params.credentials,
-    params.rawSession,
-  );
-  requireEncryptedSessionContext(ctx);
-  const { encryptionKey, encryptionVariant } = ctx;
+  // Key-establishment failures degrade to unavailable metadata here; callers that
+  // execute against the session resolve the strict context directly and stay fail-closed.
+  // (Upstream callers such as the Agent bridge handle null the same way.)
+  let encryptionKey: Uint8Array;
+  let encryptionVariant: 'legacy' | 'dataKey';
+  try {
+    const ctx = resolveSessionEncryptionContextFromCredentials(
+      params.credentials,
+      params.rawSession,
+    );
+    requireEncryptedSessionContext(ctx);
+    ({ encryptionKey, encryptionVariant } = ctx);
+  } catch (error) {
+    if (error instanceof SessionKeyAuthenticationError || error instanceof SessionKeyBindingPendingError) {
+      return null;
+    }
+    throw error;
+  }
 
   try {
     const decrypted = decrypt(encryptionKey, encryptionVariant, decodeBase64(encryptedMetadataBase64, 'base64'));

@@ -7,15 +7,26 @@ import { resetNativeCryptoWorkerQueueLifecycleForTests } from './nativeCryptoWor
 import type { NativeCryptoWorker } from './nativeCryptoWorker/types';
 
 describe('Encryption.initializeSessions (key updates)', () => {
-  it('updates session encryption when a data key becomes available later', async () => {
+  it('rejects missing session keys instead of creating a legacy encryptor', async () => {
+    const encryption = await Encryption.create(new Uint8Array(32).fill(1));
+    await encryption.initializeSessions(new Map([['session_1', new Uint8Array(32).fill(2)]]));
+    await expect(encryption.initializeSessions(new Map([['session_1', null]]))).rejects.toMatchObject({
+      code: 'SESSION_KEY_AUTHENTICATION_FAILED', retryable: false,
+    });
+    expect(encryption.getSessionEncryption('session_1')).toBeNull();
+    await expect(encryption.openEncryption(null, { sessionId: 'session_1' })).rejects.toMatchObject({
+      code: 'SESSION_KEY_AUTHENTICATION_FAILED',
+    });
+  });
+
+  it('updates session encryption when a data key rotates', async () => {
     const masterSecret = new Uint8Array(32).fill(1);
     const sessionDataKey = new Uint8Array(32).fill(2);
     const sessionId = 'session_1';
 
     const encryption = await Encryption.create(masterSecret);
 
-    // First initialize without a data key (fallback encryption).
-    await encryption.initializeSessions(new Map([[sessionId, null]]));
+    await encryption.initializeSessions(new Map([[sessionId, new Uint8Array(32).fill(3)]]));
     const before = encryption.getSessionEncryption(sessionId);
     expect(before).toBeTruthy();
 
@@ -25,10 +36,8 @@ describe('Encryption.initializeSessions (key updates)', () => {
     const encrypted = await aes.encrypt([payload]);
     const ciphertextB64 = encodeBase64(encrypted[0], 'base64');
 
-    // With fallback encryption, decrypting AES ciphertext must fail.
     expect(await before!.decryptRaw(ciphertextB64)).toBeNull();
 
-    // Later, the data key becomes available (e.g. after decryptEncryptionKey succeeds).
     await encryption.initializeSessions(new Map([[sessionId, sessionDataKey]]));
     const after = encryption.getSessionEncryption(sessionId);
     expect(after).toBeTruthy();
@@ -238,23 +247,23 @@ describe('Encryption.initializeSessions (key updates)', () => {
     expect(encryption.getCurrentGeneration('account-a', 'server-a', 'session_2')).toBe(1);
   });
 
-  it('isolates fallback native decrypt queues by null-data-key session scope', async () => {
+  it('isolates native decrypt queues by data-key session scope', async () => {
     resetNativeCryptoWorkerQueueLifecycleForTests();
 
     const encryption = await Encryption.create(new Uint8Array(32).fill(1));
     const baseWorker = createFakeCryptoWorker();
-    const firstDispatch = createDeferred<Awaited<ReturnType<NativeCryptoWorker['decryptSecretboxJson']>>>();
-    let firstRequest: Parameters<NativeCryptoWorker['decryptSecretboxJson']>[0] | null = null;
-    const decryptSecretboxJson = vi.fn(async (request: Parameters<NativeCryptoWorker['decryptSecretboxJson']>[0]) => {
+    const firstDispatch = createDeferred<Awaited<ReturnType<NativeCryptoWorker['decryptAesGcmJson']>>>();
+    let firstRequest: Parameters<NativeCryptoWorker['decryptAesGcmJson']>[0] | null = null;
+    const decryptAesGcmJson = vi.fn(async (request: Parameters<NativeCryptoWorker['decryptAesGcmJson']>[0]) => {
       if (firstRequest === null) {
         firstRequest = request;
         return await firstDispatch.promise;
       }
-      return baseWorker.decryptSecretboxJson(request);
+      return baseWorker.decryptAesGcmJson(request);
     });
     const worker: NativeCryptoWorker = {
       ...baseWorker,
-      decryptSecretboxJson,
+      decryptAesGcmJson,
     };
 
     try {
@@ -273,8 +282,8 @@ describe('Encryption.initializeSessions (key updates)', () => {
       });
 
       await encryption.initializeSessions(new Map([
-        ['session_1', null],
-        ['session_2', null],
+        ['session_1', new Uint8Array(32).fill(2)],
+        ['session_2', new Uint8Array(32).fill(3)],
       ]), {
         accountId: 'account-a',
         serverId: 'server-a',
@@ -289,12 +298,12 @@ describe('Encryption.initializeSessions (key updates)', () => {
       const encryptedTwo = await sessionTwo!.encryptRaw({ hello: 'session-2' });
 
       const firstDecrypt = sessionOne!.decryptRaw(encryptedOne);
-      await expect.poll(() => decryptSecretboxJson.mock.calls.length).toBe(1);
+      await expect.poll(() => decryptAesGcmJson.mock.calls.length).toBe(1);
 
       const secondDecrypt = sessionTwo!.decryptRaw(encryptedTwo);
 
-      await expect.poll(() => decryptSecretboxJson.mock.calls.length).toBe(2);
-      expect(decryptSecretboxJson.mock.calls.map(([request]) => request.scope)).toEqual([
+      await expect.poll(() => decryptAesGcmJson.mock.calls.length).toBe(2);
+      expect(decryptAesGcmJson.mock.calls.map(([request]) => request.scope)).toEqual([
         {
           accountId: 'account-a',
           serverId: 'server-a',
@@ -310,7 +319,7 @@ describe('Encryption.initializeSessions (key updates)', () => {
       ]);
 
       expect(firstRequest).toBeTruthy();
-      firstDispatch.resolve(await baseWorker.decryptSecretboxJson(firstRequest!));
+      firstDispatch.resolve(await baseWorker.decryptAesGcmJson(firstRequest!));
 
       await expect(firstDecrypt).resolves.toEqual({ hello: 'session-1' });
       await expect(secondDecrypt).resolves.toEqual({ hello: 'session-2' });

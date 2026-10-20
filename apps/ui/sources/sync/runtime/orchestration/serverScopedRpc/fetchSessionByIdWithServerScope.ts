@@ -1,9 +1,11 @@
 import type { AuthCredentials } from '@/auth/storage/tokenStorage';
 import type { Session } from '@/sync/domains/state/storageTypes';
+import type { EncryptionScopeInput } from '@/sync/encryption/encryption';
 import { fetchAndApplySessionById, type SessionByIdEncryption } from '@/sync/engine/sessions/sessionById';
 import { runtimeFetchWithServerReachability } from '@/sync/runtime/connectivity/serverReachabilityRuntimeFetch';
 import { storage } from '@/sync/domains/state/storage';
 import { resolveUiClientEncryptionRequirement } from '@/sync/domains/settings/clientEncryptionRequirement';
+import { resolveScopedClientEncryptionRequirement } from '@/sync/domains/settings/scopedClientEncryptionRequirement';
 
 import { resolveServerScopedSessionContext } from './resolveServerScopedSessionContext';
 
@@ -14,13 +16,17 @@ function toScopedFetchCredentials(token: string): AuthCredentials {
 }
 
 function getScopedSessionByIdEncryption(context: Readonly<{
-    decryptEncryptionKey: (value: string) => Promise<Uint8Array | null>;
-    initializeSessions: (keys: Map<string, Uint8Array | null>) => Promise<void>;
+    decryptSessionEncryptionKey: (sessionId: string, value: string) => Promise<Uint8Array | null>;
+    hasSessionEncryptionKey: (sessionId: string, dataKey: Uint8Array, scope?: EncryptionScopeInput) => boolean;
+    removeSessionEncryption: (sessionId: string) => void;
+    initializeSessions: (keys: Map<string, Uint8Array | null>, scope?: EncryptionScopeInput) => Promise<void>;
     getSessionEncryption: (sessionId: string) => unknown;
 }>): SessionByIdEncryption {
     return {
-        decryptEncryptionKey: (value) => context.decryptEncryptionKey(value),
-        initializeSessions: (keys) => context.initializeSessions(keys),
+        decryptSessionEncryptionKey: (sessionId, value) => context.decryptSessionEncryptionKey(sessionId, value),
+        hasSessionEncryptionKey: (sessionId, key, scope) => context.hasSessionEncryptionKey(sessionId, key, scope),
+        removeSessionEncryption: (sessionId) => context.removeSessionEncryption(sessionId),
+        initializeSessions: (keys, scope) => context.initializeSessions(keys, scope),
         getSessionEncryption: (sessionId) => {
             const candidate = context.getSessionEncryption(sessionId);
             if (!candidate || typeof candidate !== 'object') {
@@ -36,8 +42,8 @@ function getScopedSessionByIdEncryption(context: Readonly<{
             }
 
             return {
-                decryptAgentState: maybeEncryption.decryptAgentState,
-                decryptMetadata: maybeEncryption.decryptMetadata,
+                decryptAgentState: maybeEncryption.decryptAgentState.bind(candidate),
+                decryptMetadata: maybeEncryption.decryptMetadata.bind(candidate),
             };
         },
     };
@@ -58,14 +64,20 @@ export async function fetchSessionByIdWithServerScope(params: Readonly<{
     includeTurnsProjection?: boolean;
 }>): Promise<Awaited<ReturnType<typeof fetchAndApplySessionById>>> {
     const currentSettings = storage.getState().settings;
-    const clientEncryptionRequirement = resolveUiClientEncryptionRequirement({
-        syncedSettings: currentSettings,
-        localSettings: currentSettings,
-    });
     const context = await resolveServerScopedSessionContext({
         serverId: params.serverId ?? null,
         timeoutMs: params.timeoutMs,
     });
+    // The requirement gates plaintext rows; an unreadable target scope fails closed to e2ee-only.
+    const clientEncryptionRequirement = context.scope === 'active'
+        ? resolveUiClientEncryptionRequirement({
+            syncedSettings: currentSettings,
+            localSettings: currentSettings,
+        })
+        : (resolveScopedClientEncryptionRequirement({
+            serverId: context.targetServerId,
+            accountId: context.targetAccountId,
+        }) ?? 'require_e2ee');
 
     if (context.scope === 'active') {
         if (!params.activeEncryption) {

@@ -7,6 +7,7 @@ vi.mock('@/sync/api/capabilities/serverFeaturesClient', () => ({
 }));
 
 import { fetchAndApplySessionById } from '@/sync/engine/sessions/sessionById';
+import { Encryption } from '@/sync/encryption/encryption';
 import type { Session } from '@/sync/domains/state/storageTypes';
 import { createNotAuthenticatedError } from '@/sync/runtime/connectivity/authErrors';
 import {
@@ -229,11 +230,7 @@ describe('followUpSpawnedSessionWithServerScope', () => {
                 targetAccountId: 'account-b',
                 targetServerUrl: 'https://server-b.example.test',
                 token: 'token-b',
-                encryption: {
-                    decryptEncryptionKey: async () => null,
-                    initializeSessions: async () => {},
-                    getSessionEncryption: () => null,
-                },
+                encryption: await Encryption.create(new Uint8Array(32).fill(7)),
             }),
             fetchSessionById: async ({ applySessions }) => {
                 const session = {
@@ -303,11 +300,7 @@ describe('followUpSpawnedSessionWithServerScope', () => {
                 targetAccountId: 'account-b',
                 targetServerUrl: 'https://server-b.example.test',
                 token: 'token-b',
-                encryption: {
-                    decryptEncryptionKey: async () => null,
-                    initializeSessions: async () => {},
-                    getSessionEncryption: () => null,
-                },
+                encryption: await Encryption.create(new Uint8Array(32).fill(7)),
             }),
             fetchSessionById: async ({ applySessions }) => {
                 applySessions([fetchedSession]);
@@ -406,11 +399,7 @@ describe('followUpSpawnedSessionWithServerScope', () => {
                 targetAccountId: 'account-b',
                 targetServerUrl: 'https://server-b.example.test',
                 token: 'token-b',
-                encryption: {
-                    decryptEncryptionKey: async () => null,
-                    initializeSessions: async () => {},
-                    getSessionEncryption: () => null,
-                },
+                encryption: await Encryption.create(new Uint8Array(32).fill(7)),
             }),
             fetchSessionById: async ({ applySessions }) => {
                 applySessions([fetchedSession]);
@@ -459,11 +448,7 @@ describe('followUpSpawnedSessionWithServerScope', () => {
                 targetAccountId: 'account-b',
                 targetServerUrl: 'https://server-b.example.test',
                 token: 'token-b',
-                encryption: {
-                    decryptEncryptionKey: async () => null,
-                    initializeSessions: async () => {},
-                    getSessionEncryption: () => null,
-                },
+                encryption: await Encryption.create(new Uint8Array(32).fill(7)),
             }),
             fetchSessionById: async () => ({
                 ok: false,
@@ -501,11 +486,7 @@ describe('followUpSpawnedSessionWithServerScope', () => {
                 targetAccountId: 'account-b',
                 targetServerUrl: 'https://server-b.example.test',
                 token: 'token-b',
-                encryption: {
-                    decryptEncryptionKey: async () => null,
-                    initializeSessions: async () => {},
-                    getSessionEncryption: () => null,
-                },
+                encryption: await Encryption.create(new Uint8Array(32).fill(7)),
             }),
             fetchSessionById: async () => {
                 throw createNotAuthenticatedError();

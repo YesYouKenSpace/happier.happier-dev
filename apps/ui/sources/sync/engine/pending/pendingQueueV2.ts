@@ -1,4 +1,6 @@
 import { storage } from '@/sync/domains/state/storage';
+import { isUiClientEncryptionRequirementError } from '@/sync/domains/settings/clientEncryptionRequirement';
+import { assertScopedUiSessionEncryptionModeAllowed, isUiClientEncryptionRequirementUnavailableError } from '@/sync/domains/settings/scopedClientEncryptionRequirement';
 import {
     assertSafePendingIdPathSegment,
     findPendingOutboxMessage,
@@ -155,7 +157,15 @@ function serializePendingEnqueueBodyForWire(params: Readonly<{
     wireMode: Exclude<PendingInputServerWireMode, 'indeterminate'>;
     requestedAction: PendingRequestedActionV1;
     deliveryMode?: 'external_handoff';
+    outboxScope: ServerAccountScope;
 }>): string {
+    const frozen = readPendingEnqueueFrozenEnvelope(params.canonicalBody);
+    if (!frozen) throw new Error('Persisted pending outbox envelope is invalid');
+    assertScopedUiSessionEncryptionModeAllowed({
+        mode: frozen.content.t === 'plain' ? 'plain' : 'e2ee',
+        serverId: params.outboxScope.serverId,
+        accountId: params.outboxScope.accountId,
+    });
     if (params.wireMode === 'pending_input_v2') return params.canonicalBody;
     if (params.wireMode === 'pending_input_v1') {
         let parsed: unknown;
@@ -1758,6 +1768,11 @@ async function enqueuePendingMessageV2Owned(params: {
         storage.getState().clearSessionOptimisticThinking(sessionId);
         throw new Error(`Session ${sessionId} not found in storage`);
     }
+    assertScopedUiSessionEncryptionModeAllowed({
+        mode: session.encryptionMode === 'plain' ? 'plain' : 'e2ee',
+        serverId: outboxScope.serverId,
+        accountId: outboxScope.accountId,
+    });
     if (params.localId !== undefined && readPendingLocalId(params.localId) === null) {
         storage.getState().clearSessionOptimisticThinking(sessionId);
         throw new Error('Pending localId must not be blank');
@@ -1916,6 +1931,7 @@ async function enqueuePendingMessageV2Owned(params: {
                     canonicalBody: outboxRow.request.body,
                     wireMode,
                     requestedAction,
+                    outboxScope,
                     ...(deliveryMode ? { deliveryMode } : {}),
                 }),
             });
@@ -2015,6 +2031,10 @@ async function enqueuePendingMessageV2Owned(params: {
             ...(deliveryMode === 'external_handoff' ? { externalHandoffClaimed: true as const } : {}),
         };
     } catch (e) {
+        if (isUiClientEncryptionRequirementError(e) || isUiClientEncryptionRequirementUnavailableError(e)) {
+            storage.getState().clearSessionOptimisticThinking(sessionId);
+            throw e;
+        }
         if (!hasDurableOutboxCustody) {
             removePendingOutboxProjectionIfOwned(sessionId, localId, outboxScope);
             storage.getState().clearSessionOptimisticThinking(sessionId);
@@ -2198,6 +2218,7 @@ export async function retryPendingOutboxOperationV2(params: {
                     canonicalBody: current.request.body,
                     wireMode,
                     requestedAction,
+                    outboxScope,
                     ...(deliveryMode ? { deliveryMode } : {}),
                 }),
             });
@@ -2304,6 +2325,10 @@ export async function retryPendingOutboxOperationV2(params: {
 
         return { accepted: true };
     } catch (e) {
+        if (isUiClientEncryptionRequirementError(e) || isUiClientEncryptionRequirementUnavailableError(e)) {
+            storage.getState().clearSessionOptimisticThinking(sessionId);
+            throw e;
+        }
         if (isTransientConnectivityError(e)) {
             (await setPendingMessageSendState(sessionId, pendingLocalId, 'unconfirmed', outboxScope));
             if (existing) storage.getState().clearSessionOptimisticThinking(sessionId);
@@ -2384,6 +2409,11 @@ export async function updatePendingMessageV2(params: {
         });
     })();
 
+    assertScopedUiSessionEncryptionModeAllowed({
+        mode: sessionEncryptionMode,
+        serverId: params.outboxScope.serverId,
+        accountId: params.outboxScope.accountId,
+    });
     const writeBody =
         sessionEncryptionMode === 'plain'
             ? { content: { t: 'plain', v: rawRecord }, messageRole: 'user' }

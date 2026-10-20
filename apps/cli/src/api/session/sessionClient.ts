@@ -2242,6 +2242,7 @@ export class ApiSessionClient extends EventEmitter {
                     sessionId: this.sessionId,
                     encryptionKey: this.encryptionKey,
                     encryptionVariant: this.encryptionVariant,
+                    sessionEncryptionMode: this.sessionEncryptionMode,
                     currentMetadataVersion: this.metadataVersion,
                     currentAgentStateVersion: this.agentStateVersion,
                     currentMetadata: this.metadata,

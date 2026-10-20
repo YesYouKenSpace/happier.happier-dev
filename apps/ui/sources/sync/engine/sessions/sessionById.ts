@@ -1,5 +1,6 @@
 import {
   isSessionEncryptionModeAllowedByClientRequirement,
+  SessionKeyAuthenticationError,
   listCompletedSessionTurns,
   SessionTurnsProjectionV1Schema,
   type SessionTurnsProjectionV1,
@@ -9,6 +10,7 @@ import {
 
 import type { Metadata, Session } from '@/sync/domains/state/storageTypes';
 import type { AuthCredentials } from '@/auth/storage/tokenStorage';
+import type { EncryptionScopeInput } from '@/sync/encryption/encryption';
 import { syncPerformanceTelemetry } from '@/sync/runtime/syncPerformanceTelemetry';
 import { reportNewAgentRequestsFromSessionTransition } from '@/voice/context/reportNewAgentRequestsFromSessionTransition';
 import {
@@ -32,8 +34,10 @@ type SessionEncryption = {
 };
 
 export type SessionByIdEncryption = {
-  decryptEncryptionKey: (value: string) => Promise<Uint8Array | null>;
-  initializeSessions: (sessionKeys: Map<string, Uint8Array | null>) => Promise<void>;
+  decryptSessionEncryptionKey: (sessionId: string, value: string) => Promise<Uint8Array | null>;
+  hasSessionEncryptionKey: (sessionId: string, dataKey: Uint8Array, scope?: EncryptionScopeInput) => boolean;
+  removeSessionEncryption: (sessionId: string) => void;
+  initializeSessions: (sessionKeys: Map<string, Uint8Array | null>, scope?: EncryptionScopeInput) => Promise<void>;
   getSessionEncryption: (sessionId: string) => SessionEncryption | null;
 };
 
@@ -195,6 +199,14 @@ export async function fetchAndApplySessionById(params: Readonly<{
 }> {
   const sessionId = String(params.sessionId ?? '').trim();
   if (!sessionId) return { ok: false, session: null, errorCode: 'invalid_session_id' };
+  const rejectSessionKey = () => {
+    params.sessionDataKeys.delete(sessionId);
+    params.sessionDataKeyEnvelopes?.delete(sessionId);
+    params.encryption.removeSessionEncryption(sessionId);
+    const error = new SessionKeyAuthenticationError();
+    params.log.log(`[sessionById] ${error.code}: ${sessionId}`);
+    return { ok: false, session: null, errorCode: error.code };
+  };
 
   const timeoutMs = typeof params.timeoutMs === 'number' && params.timeoutMs > 0 ? params.timeoutMs : 10_000;
   let responseOk = false;
@@ -271,9 +283,7 @@ export async function fetchAndApplySessionById(params: Readonly<{
   }
 
   const row = reparsed.session;
-  if (String(row.id ?? '').trim() !== sessionId) {
-    return { ok: false, session: null, errorCode: 'invalid_response' };
-  }
+  if (row.id !== sessionId) return rejectSessionKey();
 
   const encryptionMode: 'e2ee' | 'plain' = row.encryptionMode === 'plain' ? 'plain' : 'e2ee';
   if (!isSessionEncryptionModeAllowedByClientRequirement(params.clientEncryptionRequirement, encryptionMode)) {
@@ -283,29 +293,24 @@ export async function fetchAndApplySessionById(params: Readonly<{
   if (encryptionMode === 'plain') {
     params.sessionDataKeys.delete(sessionId);
     params.sessionDataKeyEnvelopes?.delete(sessionId);
+    params.encryption.removeSessionEncryption(sessionId);
   } else {
-    const sessionKeys = new Map<string, Uint8Array | null>();
-    if (typeof row.dataEncryptionKey === 'string' && row.dataEncryptionKey.length > 0) {
-      const cachedKey = params.sessionDataKeys.get(sessionId);
-      const decrypted = cachedKey && params.sessionDataKeyEnvelopes?.get(sessionId) === row.dataEncryptionKey
-        ? cachedKey
-        : await params.encryption.decryptEncryptionKey(row.dataEncryptionKey);
-      if (decrypted) {
-        sessionKeys.set(sessionId, decrypted);
-        params.sessionDataKeys.set(sessionId, decrypted);
-        params.sessionDataKeyEnvelopes?.set(sessionId, row.dataEncryptionKey);
-      } else {
-        sessionKeys.set(sessionId, null);
-        params.sessionDataKeys.delete(sessionId);
-        params.sessionDataKeyEnvelopes?.delete(sessionId);
-      }
-    } else {
-      sessionKeys.set(sessionId, null);
+    const envelope = row.dataEncryptionKey;
+    if (!envelope) return rejectSessionKey();
+    const cachedKey = params.sessionDataKeys.get(sessionId);
+    const scope = params.serverId ? { serverId: params.serverId } : undefined;
+    let decrypted = cachedKey && params.sessionDataKeyEnvelopes?.get(sessionId) === envelope
+      && params.encryption.hasSessionEncryptionKey(sessionId, cachedKey, scope) ? cachedKey : null;
+    if (!decrypted) {
       params.sessionDataKeys.delete(sessionId);
       params.sessionDataKeyEnvelopes?.delete(sessionId);
+      params.encryption.removeSessionEncryption(sessionId);
+      decrypted = await params.encryption.decryptSessionEncryptionKey(sessionId, envelope);
     }
-
-    await params.encryption.initializeSessions(sessionKeys);
+    if (!decrypted) return rejectSessionKey();
+    await params.encryption.initializeSessions(new Map([[sessionId, decrypted]]), scope);
+    params.sessionDataKeys.set(sessionId, decrypted);
+    params.sessionDataKeyEnvelopes?.set(sessionId, envelope);
   }
 
   const sessionEncryption = encryptionMode === 'plain' ? null : params.encryption.getSessionEncryption(sessionId);
@@ -323,6 +328,10 @@ export async function fetchAndApplySessionById(params: Readonly<{
       sessionEncryption!.decryptMetadata(row.metadataVersion, row.metadata),
       sessionEncryption!.decryptAgentState(row.agentStateVersion, row.agentState),
     ]);
+
+  // Encrypted metadata authenticates the session-ID binding; undecryptable or unbound
+  // metadata means the row is not this session, even when the envelope opened.
+  if (encryptionMode === 'e2ee' && !metadata) return rejectSessionKey();
 
   const accessLevel = row.share?.accessLevel;
   const normalizedAccessLevel = accessLevel === 'view' || accessLevel === 'edit' || accessLevel === 'admin' ? accessLevel : undefined;

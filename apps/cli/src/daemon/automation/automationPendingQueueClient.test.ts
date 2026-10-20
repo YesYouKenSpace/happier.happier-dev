@@ -1,72 +1,61 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { randomBytes } from 'node:crypto';
+import axios from 'axios';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildSessionKeyBindingMetadataField, sealOwnerSessionDataKeyEnvelope } from '@happier-dev/protocol';
+import { decodeBase64, decrypt, encodeBase64, encrypt } from '@/api/encryption';
 import { HttpStatusError } from '@/api/client/httpStatusError';
-
-vi.mock('axios', () => ({
-  default: {
-    post: vi.fn(),
-  },
-}));
+import { createSessionRecordFixture } from '@/testkit/backends/sessionFixtures';
+import { enqueueAutomationPrompt } from './automationPendingQueueClient';
+import { configuration } from '@/configuration';
 
 describe('enqueueAutomationPrompt', () => {
-  beforeEach(() => {
-    vi.resetModules();
+  const encryption = { type: 'legacy' as const, secret: new Uint8Array(randomBytes(32)) };
+  const input = {
+    token: 'synthetic-token', encryption, sessionId: 'session-automation', prompt: 'Hello from automation',
+    sessionEncryptionMode: 'plain' as const, localId: '  opaque-automation-id  ',
+  };
+  const previousRequirement = configuration.clientEncryptionRequirement;
+  beforeEach(() => Object.assign(configuration, { clientEncryptionRequirement: 'follow_account' }));
+  afterEach(() => {
+    Object.assign(configuration, { clientEncryptionRequirement: previousRequirement });
+    vi.restoreAllMocks();
   });
 
-  it('posts plaintext pending content without requiring a session encryption key for plaintext sessions', async () => {
-    const axiosModule = await import('axios');
-    const axiosPost = vi.mocked(axiosModule.default.post);
-    axiosPost.mockResolvedValue({ data: { ok: true } } as never);
+  it('resolves the actual authenticated session key, not the template mode/key', async () => {
+    const key = randomBytes(32);
+    vi.spyOn(axios, 'get').mockResolvedValue({ status: 200, data: { session: createSessionRecordFixture({
+      id: input.sessionId, dataEncryptionKey: encodeBase64(sealOwnerSessionDataKeyEnvelope({
+        material: encryption, sessionTag: 'tag', dataKey: key, randomBytes,
+      })),
+      metadata: encodeBase64(encrypt(key, 'dataKey', {
+        path: '/synthetic',
+        ...buildSessionKeyBindingMetadataField({ sessionId: input.sessionId, sessionTag: 'tag' }),
+      })),
+    }) } });
+    const post = vi.spyOn(axios, 'post').mockResolvedValue({ data: { ok: true } });
+    await enqueueAutomationPrompt(input);
+    const body = post.mock.calls[0]?.[1] as { ciphertext: string };
+    expect(decrypt(key, 'dataKey', decodeBase64(body.ciphertext))).toMatchObject({ content: { text: input.prompt } });
+  });
 
-    const { enqueueAutomationPrompt } = await import('./automationPendingQueueClient');
+  it('rejects missing owner envelope before writing even with a stored template key', async () => {
+    vi.spyOn(axios, 'get').mockResolvedValue({ status: 200, data: { session: createSessionRecordFixture({ id: input.sessionId }) } });
+    const post = vi.spyOn(axios, 'post').mockResolvedValue({ data: { ok: true } });
+    const poisoned = { ...input, sessionEncryptionMode: 'e2ee' as const, sessionEncryptionKeyBase64: encodeBase64(randomBytes(32)) };
+    await expect(enqueueAutomationPrompt(poisoned)).rejects.toMatchObject({ code: 'SESSION_KEY_AUTHENTICATION_FAILED', retryable: false });
+    expect(post).not.toHaveBeenCalled();
+  });
 
-    await enqueueAutomationPrompt({
-      token: 'token',
-      sessionId: 'session-plain',
-      prompt: 'Hello from automation',
-      sessionEncryptionMode: 'plain',
-      localId: '  opaque-automation-id  ',
-    });
-
-    expect(axiosPost).toHaveBeenCalledTimes(1);
-    expect(axiosPost.mock.calls[0]?.[1]).toEqual({
-      localId: '  opaque-automation-id  ',
-      messageRole: 'user',
-      content: {
-        t: 'plain',
-        v: {
-          role: 'user',
-          content: {
-            type: 'text',
-            text: 'Hello from automation',
-          },
-          meta: {
-            sentFrom: 'cli',
-            source: 'automation',
-          },
-        },
-      },
-      requestedAction: { v: 1, kind: 'enqueue' },
-    });
-    expect(String(axiosPost.mock.calls[0]?.[0] ?? '')).toContain('/v2/sessions/session-plain/pending');
+  it('preserves plain pending content and opaque local IDs without needing a DEK', async () => {
+    vi.spyOn(axios, 'get').mockResolvedValue({ status: 200, data: { session: createSessionRecordFixture({ id: input.sessionId, encryptionMode: 'plain' }) } });
+    const post = vi.spyOn(axios, 'post').mockResolvedValue({ data: { ok: true } });
+    await enqueueAutomationPrompt(input);
+    expect(post.mock.calls[0]?.[1]).toMatchObject({ localId: input.localId, content: { t: 'plain', v: { content: { text: input.prompt } } } });
   });
 
   it('rethrows terminal auth failures from enqueue', async () => {
-    const axiosModule = await import('axios');
-    const axiosPost = vi.mocked(axiosModule.default.post);
-    axiosPost.mockRejectedValueOnce(new HttpStatusError(403, 'Authentication failed'));
-
-    const { enqueueAutomationPrompt } = await import('./automationPendingQueueClient');
-
-    await expect(
-      enqueueAutomationPrompt({
-        token: 'token',
-        sessionId: 'session-plain',
-        prompt: 'Hello from automation',
-        sessionEncryptionMode: 'plain',
-      }),
-    ).rejects.toMatchObject({
-      name: 'HttpStatusError',
-      response: { status: 403 },
-    });
+    vi.spyOn(axios, 'get').mockResolvedValue({ status: 200, data: { session: createSessionRecordFixture({ id: input.sessionId, encryptionMode: 'plain' }) } });
+    vi.spyOn(axios, 'post').mockRejectedValue(new HttpStatusError(403, 'Authentication failed'));
+    await expect(enqueueAutomationPrompt(input)).rejects.toMatchObject({ response: { status: 403 } });
   });
 });

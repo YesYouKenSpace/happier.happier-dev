@@ -1,5 +1,5 @@
 import { encodeBase64 } from '@/encryption/base64';
-import { projectSessionMetadataForWire } from '@happier-dev/protocol';
+import { projectSessionMetadataForWire, readSessionKeyBindingV1 } from '@happier-dev/protocol';
 import { RawRecordSchema, type RawRecord } from '../typesRaw';
 import { ApiMessage } from '../api/types/apiTypes';
 import { DecryptedMessage, Metadata, MetadataSchema, AgentState, AgentStateSchema } from '../domains/state/storageTypes';
@@ -301,6 +301,12 @@ export class SessionEncryption {
         }
         const parsed = MetadataSchema.safeParse(decrypted[0]);
         if (!parsed.success) {
+            return null;
+        }
+        // The metadata ciphertext authenticates the session-ID binding under the envelope's
+        // key; without it a relay could serve another session's consistent row under this ID.
+        const binding = readSessionKeyBindingV1(parsed.data as unknown as Record<string, unknown>);
+        if (!binding || binding.sessionId !== this.sessionId) {
             return null;
         }
 

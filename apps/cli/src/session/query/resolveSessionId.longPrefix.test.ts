@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { createSessionRecordFixture } from '@/testkit/backends/sessionFixtures';
+import { createEncryptedSessionRecordFixture, createSessionRecordFixture } from '@/testkit/backends/sessionFixtures';
 
 const { mockAxiosGet } = vi.hoisted(() => ({
   mockAxiosGet: vi.fn(),
@@ -66,7 +66,7 @@ describe('resolveSessionIdOrPrefix', () => {
     }
   });
 
-  it('reports a lookup timeout instead of not-found when a full-id fallback scan cannot complete', async () => {
+  it.each(['c000000000000000000000000', '18b46a02-759b-4d1f-9108-4d54a2a97313'])('reports a lookup timeout for full ID %s when fallback scanning cannot complete', async (sessionId) => {
     vi.useFakeTimers();
     const { reloadConfiguration } = await import('@/configuration');
     const originalServerUrl = process.env.HAPPIER_SERVER_URL;
@@ -79,7 +79,7 @@ describe('resolveSessionIdOrPrefix', () => {
     mockAxiosGet.mockClear();
     mockAxiosGet.mockImplementation(async (urlRaw: string, config?: { signal?: AbortSignal }) => {
       const url = String(urlRaw);
-      if (url.includes('/v2/sessions/c000000000000000000000000')) {
+      if (url.includes(`/v2/sessions/${sessionId}`)) {
         return { status: 404, data: {}, headers: {} };
       }
       return await new Promise((_resolve, reject) => {
@@ -89,17 +89,19 @@ describe('resolveSessionIdOrPrefix', () => {
 
     try {
       const { resolveSessionIdOrPrefix } = await import('./resolveSessionId');
+      const settled = vi.fn();
       const resultPromise = resolveSessionIdOrPrefix({
         credentials: {
           token: 'token_test',
           encryption: { type: 'legacy', secret: new Uint8Array(32).fill(1) },
         },
-        idOrPrefix: 'c000000000000000000000000',
-      });
+        idOrPrefix: sessionId,
+      }).then(settled);
 
       await vi.advanceTimersByTimeAsync(25_000);
 
-      await expect(resultPromise).resolves.toEqual({ ok: false, code: 'session_lookup_timeout' });
+      expect(settled).toHaveBeenCalledWith({ ok: false, code: 'session_lookup_timeout' });
+      await resultPromise;
       expect(mockAxiosGet).toHaveBeenCalledTimes(2);
     } finally {
       vi.useRealTimers();
@@ -137,10 +139,10 @@ describe('resolveSessionIdOrPrefix', () => {
         return {
           status: 200,
           data: {
-            sessions: [createSessionRecordFixture({
+            sessions: [createEncryptedSessionRecordFixture({
               id: 'session-with-cuid-shaped-tag',
-              encryptionMode: 'plain',
-              metadata: JSON.stringify({ tag: cuidShapedTag }),
+              credentials: { token: 'token_test', encryption: { type: 'legacy', secret: new Uint8Array(32).fill(1) } },
+              metadata: { tag: cuidShapedTag },
             })],
             nextCursor: null,
             hasNext: false,

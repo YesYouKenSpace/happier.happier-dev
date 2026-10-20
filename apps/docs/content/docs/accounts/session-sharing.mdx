@@ -27,6 +27,13 @@ With **Require consent** disabled, the access record omits the IP address and us
 
 ## Direct sharing
 
+<Callout type="warn" title="Development fork compatibility">
+The yesyoukenspace fork's strict session-key cutover rejects current encrypted direct-share envelopes
+until authenticated recipient sharing is implemented. Existing shares and ciphertext are retained;
+restoring account keys or enabling Friends does not bypass this refusal. This affects updated fork
+clients, not already-installed upstream releases. See the [encryption cutover notice](/security/encryption).
+</Callout>
+
 From a session's sharing screen, pick a person and give them one of three levels:
 
 | Level | What they can do |

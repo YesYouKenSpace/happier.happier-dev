@@ -19,6 +19,7 @@ describe('renderSessionListTable', () => {
         tag: 'tag',
         title: 'A very long title that should be truncated when the terminal is narrow',
         path: '/a/very/long/path/that/should/be/truncated/when/the/terminal/is/narrow',
+        metadataAvailable: true,
         isSystem: false,
         systemPurpose: null,
         vendorResume: { eligible: false, reasonCode: 'agent_unsupported' },

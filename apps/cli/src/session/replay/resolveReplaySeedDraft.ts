@@ -10,6 +10,7 @@ import {
 import type { LlmTaskRunnerConfigV1, SessionWorkStateV1 } from '@happier-dev/protocol';
 
 import { isAuthenticationError } from '@/api/client/httpStatusError';
+import { SessionKeyAuthenticationError } from '@happier-dev/protocol';
 import type { Credentials } from '@/persistence';
 import { resolveCliFeatureDecision } from '@/features/featureDecisionService';
 
@@ -210,7 +211,7 @@ export async function resolveReplaySeedDraft(params: Readonly<{
           ...(typeof params.source.upToSeqInclusive === 'number' ? { upToSeqInclusive: params.source.upToSeqInclusive } : {}),
           ...(returningAgentLastSeenSeq === null ? {} : { afterSeqExclusive: returningAgentLastSeenSeq }),
         }).catch((error) => {
-          if (isAuthenticationError(error)) throw error;
+          if (isAuthenticationError(error) || error instanceof SessionKeyAuthenticationError) throw error;
           return null;
         })
       : await hydrateVoiceReplayDialogFromTranscript({
@@ -220,7 +221,7 @@ export async function resolveReplaySeedDraft(params: Readonly<{
           limit: params.candidateLimit,
           maxTextChars: params.maxTextChars,
         }).catch((error) => {
-          if (isAuthenticationError(error)) throw error;
+          if (isAuthenticationError(error) || error instanceof SessionKeyAuthenticationError) throw error;
           return null;
         });
 

@@ -9,6 +9,7 @@ import {
     ClientVersionCheckRequestV1Schema,
     ClientVersionCheckResponseV1Schema,
     SESSION_USER_MESSAGE_DELIVERY_INTENT_META_KEY,
+    SessionKeyAuthenticationError,
     isRecoveredHistoryTranscriptObservationProvenance,
     projectSessionMetadataForWire,
     readPendingLocalId,
@@ -109,6 +110,7 @@ import { NormalizedMessage, normalizeRawMessage, RawRecord, RawRecordSchema } fr
 import { applySettings, Settings, settingsDefaults, settingsParse, SUPPORTED_SCHEMA_VERSION } from './domains/settings/settings';
 import {
     assertUiSessionEncryptionModeAllowed,
+    isUiClientEncryptionRequirementError,
     resolveUiClientEncryptionRequirement,
 } from './domains/settings/clientEncryptionRequirement';
 import { Profile, profileDefaults } from './domains/profiles/profile';
@@ -731,6 +733,7 @@ function createEnsureSessionVisibleRetryableResult(
 }
 
 function mapSessionByIdTerminalCodeToMissingCause(code: string): SessionRouteHydrationMissingCause | null {
+    if (code === 'SESSION_KEY_AUTHENTICATION_FAILED') return 'auth_unavailable';
     if (code === 'not_found' || code === 'unauthorized' || code === 'forbidden') {
         return code;
     }
@@ -1635,6 +1638,12 @@ class Sync {
       private configureEncryptionRuntime(encryption: Encryption, accountId: string): void {
           if (encryption.anonID) initializeTracking(encryption.anonID);
           else trackLogout();
+          if (this.encryption !== encryption) {
+              if (this.encryption) this.serverScopeGeneration += 1;
+              for (const sessionId of this.sessionDataKeys.keys()) this.encryption?.removeSessionEncryption(sessionId);
+              this.sessionDataKeys.clear();
+              this.sessionDataKeyEnvelopes.clear();
+          }
           const serverId = String(getActiveServerSnapshot().serverId ?? '').trim() || null;
           encryption.configureAesBatchConcurrencyLimit(this.syncTuning.encryptionAesBatchConcurrencyLimit);
           // Routing is NOT set here. It arrives with the instance: Encryption resolves it
@@ -2396,11 +2405,12 @@ class Sync {
                     }
                     const stagedSessionDataKeys = new Map(this.sessionDataKeys);
                     const stagedSessionDataKeyEnvelopes = new Map(this.sessionDataKeyEnvelopes);
+                    const hydrationEncryption = this.encryption;
                     const result = await fetchSessionByIdWithServerScope({
                         sessionId: normalized,
                         serverId: scopedServerId,
                         activeCredentials: credentials,
-                        activeEncryption: this.encryption,
+                        activeEncryption: hydrationEncryption,
                         sessionDataKeys: stagedSessionDataKeys,
                         sessionDataKeyEnvelopes: stagedSessionDataKeyEnvelopes,
                         activeRequest: (path, init) => apiSocket.request(path, init),
@@ -2417,6 +2427,9 @@ class Sync {
                     }
                     if (!result.ok) {
                         const code = typeof result.errorCode === 'string' ? result.errorCode : '';
+                        if (code === 'SESSION_KEY_AUTHENTICATION_FAILED') {
+                            this.commitSessionDataKeyCacheEntry(normalized, stagedSessionDataKeys, stagedSessionDataKeyEnvelopes);
+                        }
                         const missingCause = mapSessionByIdTerminalCodeToMissingCause(code);
                         if (missingCause) {
                             if (missingCause === 'unauthorized') {
@@ -2434,28 +2447,26 @@ class Sync {
                             scopedServerId,
                         );
                     }
-                    this.commitSessionDataKeyCacheEntry(
-                        normalized,
-                        stagedSessionDataKeys,
-                        stagedSessionDataKeyEnvelopes,
-                    );
-
-                    // Ensure the *current* encryption instance is initialized for this session.
-                    // During app bootstrap / key restoration, the sync encryption instance can change while
-                    // the session-by-id hydration request is in-flight. Re-initializing here ensures
-                    // subsequent message fetches can proceed immediately.
                     const hydratedSessionEncryptionMode = result.session?.encryptionMode === 'plain' ? 'plain' : 'e2ee';
                     const hydratedServerId = String(result.session?.serverId ?? '').trim();
+                    const currentEncryption = this.encryption;
                     if (hydratedSessionEncryptionMode === 'e2ee') {
-                        const sessionDataKey = this.sessionDataKeys.get(normalized) ?? null;
+                        // A restored instance must authenticate with its own secret, not inherit a previous account's key.
+                        const envelope = result.session?.dataEncryptionKey;
+                        const sessionDataKey = hydrationEncryption === currentEncryption
+                            ? stagedSessionDataKeys.get(normalized)
+                            : envelope ? await currentEncryption.decryptSessionEncryptionKey(normalized, envelope) : null;
+                        if (!sessionDataKey) throw new SessionKeyAuthenticationError();
+                        stagedSessionDataKeys.set(normalized, sessionDataKey);
                         const sessionScope = hydratedServerId
                             ? { serverId: hydratedServerId }
                             : undefined;
-                        await this.encryption.initializeSessions(new Map([[normalized, sessionDataKey]]), sessionScope);
+                        await currentEncryption.initializeSessions(new Map([[normalized, sessionDataKey]]), sessionScope);
                     }
                     if (!isRouteHydrationScopeCurrent()) {
                         return createEnsureSessionVisibleRetryableResult(normalized, 'unknown', scopedServerId);
                     }
+                    this.commitSessionDataKeyCacheEntry(normalized, stagedSessionDataKeys, stagedSessionDataKeyEnvelopes);
 
                     const activeServerId = String(getActiveServerSnapshot().serverId ?? '').trim();
                     if (!hydratedServerId || areServerProfileIdentifiersEquivalent(hydratedServerId, activeServerId)) {
@@ -2474,6 +2485,13 @@ class Sync {
                 } catch (err) {
                     if (!isRouteHydrationScopeCurrent()) {
                         return createEnsureSessionVisibleRetryableResult(normalized, 'unknown', scopedServerId);
+                    }
+                    if (err instanceof SessionKeyAuthenticationError) {
+                        this.sessionDataKeys.delete(normalized);
+                        this.sessionDataKeyEnvelopes.delete(normalized);
+                        this.encryption.removeSessionEncryption(normalized);
+                        log.log(`[sessionHydrate] ${err.code}: ${normalized}`);
+                        return createEnsureSessionVisibleMissingResult(normalized, 'auth_unavailable', scopedServerId);
                     }
                     if (isTerminalAuthError(err)) {
                         recordTerminalAuthSyncError(err, { serverId: scopedServerId });
@@ -2516,6 +2534,7 @@ class Sync {
             this.sessionDataKeys.set(sessionId, stagedKey);
         } else {
             this.sessionDataKeys.delete(sessionId);
+            this.encryption.removeSessionEncryption(sessionId);
         }
 
         const stagedEnvelope = stagedSessionDataKeyEnvelopes.get(sessionId);
@@ -2556,14 +2575,14 @@ class Sync {
         storage.getState().markSessionOptimisticThinking(sessionId);
 
         const sessionEncryptionMode: 'e2ee' | 'plain' = session.encryptionMode === 'plain' ? 'plain' : 'e2ee';
-        const currentSettings = storage.getState().settings;
-        assertUiSessionEncryptionModeAllowed({
-            mode: sessionEncryptionMode,
-            requirement: resolveUiClientEncryptionRequirement({
-                syncedSettings: currentSettings,
-                localSettings: currentSettings,
-            }),
-        });
+        const assertEncryptionRequirement = () => {
+            const currentSettings = storage.getState().settings;
+            assertUiSessionEncryptionModeAllowed({
+                mode: sessionEncryptionMode,
+                requirement: resolveUiClientEncryptionRequirement({ syncedSettings: currentSettings, localSettings: currentSettings }),
+            });
+        };
+        assertEncryptionRequirement();
 
         try {
             const permissionPublicationScope = getActiveServerAccountScope();
@@ -2731,9 +2750,14 @@ class Sync {
                 try {
                     await assertActiveEndpointAuthenticated();
                     return await socketEmitWithAckFallback<MessageAckResponse>({
-                        emitWithAck: (event, payload, opts) =>
-                            this.messageTransport.emitWithAck<MessageAckResponse>(event, payload, opts),
-                        send: (event, payload) => this.messageTransport.send(event, payload),
+                        emitWithAck: (event, payload, opts) => {
+                            assertEncryptionRequirement();
+                            return this.messageTransport.emitWithAck<MessageAckResponse>(event, payload, opts);
+                        },
+                        send: (event, payload) => {
+                            assertEncryptionRequirement();
+                            return this.messageTransport.send(event, payload);
+                        },
                         event: 'message',
                         payload,
                         timeoutMs: this.syncTuning.socketAckTimeoutMs,
@@ -2951,6 +2975,20 @@ class Sync {
 
             const sessionEncryptionMode: 'e2ee' | 'plain' = session.encryptionMode === 'plain' ? 'plain' : 'e2ee';
             const parsed = RawRecordSchema.safeParse(pending.rawRecord);
+            const assertEncryptionRequirement = () => {
+                const settings = storage.getState().settings;
+                try {
+                    assertUiSessionEncryptionModeAllowed({
+                        mode: sessionEncryptionMode,
+                        requirement: resolveUiClientEncryptionRequirement({ syncedSettings: settings, localSettings: settings }),
+                    });
+                } catch (error) {
+                    clearRetry();
+                    storage.getState().clearSessionOptimisticThinking(params.sessionId);
+                    throw error;
+                }
+            };
+            assertEncryptionRequirement();
             const rawRecord: RawRecord = parsed.success ? parsed.data : {
                 role: 'user',
                 content: { type: 'text', text: pending.text },
@@ -2985,10 +3023,12 @@ class Sync {
             const rawAck = await (async () => {
                 try {
                     await assertActiveEndpointAuthenticated();
+                    assertEncryptionRequirement();
                     return await this.messageTransport.emitWithAck<MessageAckResponse>('message', payload, {
                         timeoutMs: this.syncTuning.socketAckTimeoutMs,
                     });
                 } catch (error) {
+                    if (isUiClientEncryptionRequirementError(error)) throw error;
                     let terminalError = error;
                     if (!isTerminalAuthError(terminalError)) {
                         try {
@@ -3354,6 +3394,11 @@ class Sync {
                 patchContext = resolvePatchContext();
             },
             encryptMetadata: async (metadata) => {
+                const settings = storage.getState().settings;
+                assertUiSessionEncryptionModeAllowed({
+                    mode: patchContext.sessionEncryptionMode,
+                    requirement: resolveUiClientEncryptionRequirement({ syncedSettings: settings, localSettings: settings }),
+                });
                 if (patchContext.sessionEncryptionMode === 'plain') {
                     return JSON.stringify(projectSessionMetadataForWire(metadata));
                 }
@@ -3379,6 +3424,7 @@ class Sync {
             },
             emitUpdateMetadata: async (payload) => await emitSessionMetadataUpdateWithServerScope({
                 sessionId,
+                encryptionMode: patchContext.sessionEncryptionMode,
                 expectedVersion: payload.expectedVersion,
                 metadata: payload.metadata,
                 ...(resolvedServerIdOverride ? { serverId: resolvedServerIdOverride } : {}),
@@ -4254,6 +4300,9 @@ class Sync {
                 });
                 if (!shouldContinue()) return;
                 if (!exactResult.ok) {
+                    if (exactResult.errorCode === 'SESSION_KEY_AUTHENTICATION_FAILED') {
+                        this.commitSessionDataKeyCacheEntry(sessionId, stagedSessionDataKeys, stagedSessionDataKeyEnvelopes);
+                    }
                     if (exactResult.errorCode === 'not_found') {
                         stagedSessionDataKeys.delete(sessionId);
                         stagedSessionDataKeyEnvelopes.delete(sessionId);
@@ -4501,10 +4550,10 @@ class Sync {
 
     /**
      * Export the per-session data key for UI-assisted resume (dataKey mode only).
-     * Returns null when the session uses legacy encryption or the key is unavailable.
+     * Returns null unless the current runtime owns an authenticated session key.
      */
     public getSessionEncryptionKeyBase64ForResume(sessionId: string): string | null {
-        const key = this.sessionDataKeys.get(sessionId);
+        const key = this.getSessionDataKey(sessionId);
         if (!key) return null;
         return encodeBase64(key, 'base64');
     }
@@ -4518,7 +4567,9 @@ class Sync {
      */
     public getSessionDataKey(sessionId: string): Uint8Array | null {
         const key = this.sessionDataKeys.get(sessionId);
-        if (!key) return null;
+        const serverId = resolvePreferredServerIdForSessionId(sessionId);
+        if (!key || !this.sessionDataKeyEnvelopes.has(sessionId)
+            || !this.encryption.hasSessionEncryptionKey(sessionId, key, serverId ? { serverId } : undefined)) return null;
         // Defensive copy (callers should treat keys as immutable).
         return new Uint8Array(key);
     }
@@ -7845,6 +7896,9 @@ class Sync {
             });
             if (!shouldContinue()) return;
             if (!result.ok) {
+                if (result.errorCode === 'SESSION_KEY_AUTHENTICATION_FAILED') {
+                    this.commitSessionDataKeyCacheEntry(normalized, stagedSessionDataKeys, stagedSessionDataKeyEnvelopes);
+                }
                 log.log(`[Sync.socketHydrateSession] ${reason} failed for ${normalized}: ${result.errorCode ?? 'unknown'}`);
                 this.sessionsSync.invalidate();
                 return;

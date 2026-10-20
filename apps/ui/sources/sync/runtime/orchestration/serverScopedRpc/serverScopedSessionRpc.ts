@@ -10,6 +10,7 @@ import type { ResolvedServerSessionRpcContext } from '@/sync/runtime/orchestrati
 import { areServerAccountScopesEqual, createServerAccountScope, type ServerAccountScope } from '@/sync/domains/scope/serverAccountScope';
 import { readRpcErrorCode } from '@happier-dev/protocol/rpcErrors';
 import { raceSocketIoAckTimeout } from '@/sync/runtime/socketIoAckTimeout';
+import { assertScopedUiSessionEncryptionModeAllowed } from '@/sync/domains/settings/scopedClientEncryptionRequirement';
 
 import type { SocketRpcResult } from './serverScopedRpcTypes';
 
@@ -39,8 +40,14 @@ async function callScopedSessionRpc<R, A>(params: Readonly<{
     token: params.context.token,
     sessionId: params.sessionId,
     timeoutMs: params.context.timeoutMs,
-    decryptEncryptionKey: (value) => params.context.encryption.decryptEncryptionKey(value),
+    encryption: params.context.encryption,
   });
+  if (cryptoContext.encryptionMode === 'unknown') {
+    throw createRpcCallError({
+      error: 'Unable to resolve session encryption for scoped RPC',
+      errorCode: 'scoped_session_encryption_unavailable',
+    });
+  }
 
     const socket = await createEphemeralServerSocketClient({
         serverUrl: params.context.targetServerUrl,
@@ -49,6 +56,11 @@ async function callScopedSessionRpc<R, A>(params: Readonly<{
     });
     try {
         if (cryptoContext.encryptionMode === 'plain') {
+            assertScopedUiSessionEncryptionModeAllowed({
+                mode: 'plain',
+                serverId: params.context.targetServerId,
+                accountId: params.context.targetAccountId,
+            });
             const socketEmission = params.operationTimeoutMs === null
                 ? socket
                 : socket.timeout(params.operationTimeoutMs);
@@ -67,13 +79,6 @@ async function callScopedSessionRpc<R, A>(params: Readonly<{
       throw createRpcCallError({
         error: typeof result.error === 'string' ? result.error : 'RPC call failed',
         errorCode: typeof result.errorCode === 'string' ? result.errorCode : undefined,
-      });
-    }
-
-    if (cryptoContext.encryptionMode !== 'e2ee') {
-      throw createRpcCallError({
-        error: 'Unable to resolve session encryption for scoped RPC',
-        errorCode: 'scoped_session_encryption_unavailable',
       });
     }
 

@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { configuration } from '@/configuration';
 
 import { HttpStatusError, isAuthenticationError } from '@/api/client/httpStatusError';
 import { updateSessionMetadataWithRetry } from './updateSessionMetadataWithRetry';
@@ -64,7 +65,10 @@ vi.mock('@/session/transport/shared/sessionTimeouts', () => ({
 }));
 
 describe('updateSessionMetadataWithRetry', () => {
+  const previousRequirement = configuration.clientEncryptionRequirement;
+  afterEach(() => Object.assign(configuration, { clientEncryptionRequirement: previousRequirement }));
   beforeEach(() => {
+    Object.assign(configuration, { clientEncryptionRequirement: 'follow_account' });
     socketRef.current = null;
     patchSessionMetadataMock.mockReset();
     waitForSocketConnectMock.mockReset();
