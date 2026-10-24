@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
+import type { Credentials } from '@/persistence';
 import {
   readPendingLocalId,
   SessionKeyAuthenticationError,
@@ -7,6 +8,7 @@ import {
 } from '@happier-dev/protocol';
 import { enqueuePendingQueueV2MessageViaHttp } from '@/api/session/pendingQueueV2Transport';
 import { fetchSessionById } from '@/session/transport/http/sessionsHttp';
+import { libsodiumPublicKeyFromSecretKey } from '@/api/encryption';
 import {
   encryptSessionPayload,
   resolveSessionEncryptionContextFromCredentials,
@@ -15,7 +17,7 @@ import {
 
 export async function enqueueAutomationPrompt(params: {
   token: string;
-  encryption: AccountScopedCryptoMaterial;
+  encryption?: AccountScopedCryptoMaterial;
   sessionId: string;
   prompt: string;
   displayText?: string;
@@ -33,7 +35,23 @@ export async function enqueueAutomationPrompt(params: {
   if (!rawSession) throw new SessionKeyAuthenticationError();
   const mode = resolveSessionStoredContentEncryptionMode(rawSession);
   if (params.sessionEncryptionMode === 'e2ee' && mode === 'plain') throw new SessionKeyAuthenticationError();
-  const ctx = resolveSessionEncryptionContextFromCredentials(params, rawSession);
+  if (mode !== 'plain' && !params.encryption) throw new SessionKeyAuthenticationError();
+  const encryption = params.encryption;
+  // The daemon carries the account box secret without its public half; derive it the same
+  // way as the artifact store so the strict resolver receives full credentials.
+  // A missing account key is only tolerable for plaintext rows (fail-closed above otherwise).
+  const credentials: Credentials = !encryption
+    ? { token: params.token, encryption: null }
+    : encryption.type === 'legacy'
+      ? { token: params.token, encryption }
+      : {
+        token: params.token,
+        encryption: {
+          ...encryption,
+          publicKey: libsodiumPublicKeyFromSecretKey(encryption.machineKey),
+        },
+      };
+  const ctx = resolveSessionEncryptionContextFromCredentials(credentials, rawSession);
   const message = {
     role: 'user' as const,
     content: { type: 'text' as const, text: prompt },

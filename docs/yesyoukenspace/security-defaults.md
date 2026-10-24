@@ -54,11 +54,19 @@ See [Public sharing](public-sharing.md) for the default-off client flag, explici
 
 ## Session Key Authentication
 
-**Status: implemented in uncommitted development source; not released or fully live-validated.** The approved strict cutover keeps random
+**Status: rebased onto upstream `dev` at `7e0bbd47f4` (commits `74b8cc7c09`, `fe0d37eb9a`, `5342b76ea0`);
+post-rebase integration fixes live in the working tree, uncommitted; not released or fully live-validated.** The approved strict cutover keeps random
 session DEKs but authenticates their owner envelopes with a purpose-derived account content key.
 The envelope binds the creation tag; the session-ID binding lives inside the DEK-encrypted
 metadata, so no relay change is needed. Clients must validate the requested identity before
 accepting a key, including create-or-load responses, resume, and UI hydration.
+
+Upstream's create→publish DEK-fetch retry composes with the fork's binding-pending signal:
+a missing envelope is refetched a bounded number of times, then strictly rejected — never
+downgraded. The scoped UI session-key memo cache is restored with a per-instance guard, so a
+different account secret never adopts another account's cached resolution while machine-token
+eviction still cannot invalidate session entries. Legacy-credential rows open owner envelopes
+through the same strict path; only envelope-absent pre-cutover rows use the narrow fallback.
 
 Updated clients reject missing, malformed, anonymous legacy, wrong-account, and wrong-context
 session envelopes. Existing encrypted direct-share envelopes are also rejected until an authenticated
@@ -114,6 +122,23 @@ Verification performed:
 - Focused/broader protocol, CLI, UI, and server tests and package typechecks passed. Independent
   review reproduced and then verified corrections for plaintext scoped-RPC downgrade and
   legacy-row collection poisoning.
+- Post-rebase integration coverage: the CLI retry-then-reject composition
+  ([transport test](../../apps/cli/src/session/services/resolveSessionTransportContext.test.ts)),
+  the restored scoped memo with per-account isolation
+  ([scoped test](../../apps/ui/sources/sync/runtime/orchestration/serverScopedRpc/scopedDataKeySingleFlight.test.ts)),
+  legacy-envelope opening through the strict path and plaintext-summary projection under the
+  fork default (pinned to `follow_account` in routing/projection tests, matching the
+  established attach-test pattern), and the daemon automation credential derivation. CLI and
+  protocol typechecks are clean in the fork's scope; UI typecheck is clean in `sync/` and the
+  touched suites pass.
+
+Remaining gates: browser/native-device execution and running daemon/provider resume have not been
+exercised. `make test-all` fails outside this corridor on missing Bun, an OpenCode launcher check,
+and missing website release-reference checkouts. Pre-existing, unrelated failures reproduced on the
+pristine base: missing `smol-toml`/`ws-node` installs (worked around locally with read-only
+`apps/cli/node_modules` symlinks, no repo change), absent `tmux` (one attach test made hermetic;
+the rest of that file passes), and upstream markdown/legendList/codex typecheck errors in files
+this change does not touch. The required 0.3 port lacks a destination checkout.
 
 Remaining gates: browser/native-device execution and running daemon/provider resume have not been
 exercised. `make test-all` fails outside this corridor on missing Bun, an OpenCode launcher check,

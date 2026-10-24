@@ -142,7 +142,7 @@ describe('socket update handling: plaintext update-session', () => {
             sessionId: session.id,
             credentials: { token: 'test-token', secret: 'test-secret' },
             clientEncryptionRequirement: 'follow_account',
-            encryption: { decryptEncryptionKey: async () => null, initializeSessions: async () => {}, getSessionEncryption: () => null },
+            encryption: { decryptSessionEncryptionKey: async () => null, hasSessionEncryptionKey: () => false, initializeSessions: async () => {}, removeSessionEncryption: () => {}, getSessionEncryption: () => null },
             sessionDataKeys: new Map(),
             includeTurnsProjection: false,
             request: async () => {

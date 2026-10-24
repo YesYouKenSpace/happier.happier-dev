@@ -6,7 +6,7 @@ import { SessionKeyAuthenticationError } from '@happier-dev/protocol';
 import { isAuthenticationError } from '@/api/client/httpStatusError';
 import { findTranscriptEncryptedMessageByLocalId } from '@/api/session/transcriptMessageLookup';
 import { configuration } from '@/configuration';
-import { fetchSessionByIdCompat } from '@/session/transport/http/sessionsHttp';
+import { fetchSessionByIdCompat, type RawSessionRecord } from '@/session/transport/http/sessionsHttp';
 import {
   resolveSessionEncryptionContextFromCredentials,
   tryDecryptSessionMetadata,
@@ -373,7 +373,7 @@ export async function hydrateReplayDialogFromForkChain(params: Readonly<{
   let unreadableRowCount = 0;
   const wantSynopsisText = params.wantSynopsisText === true;
 
-  const openSegment = (segment: { rawSession: Parameters<typeof resolveSessionEncryptionContextFromCredentials>[1] }): SessionEncryptionContext | null => {
+  const openSegment = (segment: { rawSession: RawSessionRecord }): SessionEncryptionContext | null => {
     const ctx = resolveSessionEncryptionContextFromCredentials(params.credentials, segment.rawSession);
     return segment.rawSession.encryptionMode === 'plain' ? null : ctx;
   };

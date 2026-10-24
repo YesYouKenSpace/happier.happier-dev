@@ -1,9 +1,23 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { encodeBase64, encryptLegacy } from '@/api/encryption';
+import { configuration, reloadConfiguration } from '@/configuration';
 import { createEncryptedSessionRecordFixture, createSessionRecordFixture } from '@/testkit/backends/sessionFixtures';
 import { summarizeSessionRow } from '@/cli/output/session/sessionSummary';
 
 describe('summarizeSessionRow', () => {
+  beforeEach(() => {
+    // These flows exercise summary projection, not encryption policy. The configuration
+    // singleton is read at call time, so pin it directly (env stubs cannot reach it).
+    vi.stubEnv('HAPPIER_ENCRYPTION_REQUIREMENT', 'follow_account');
+    Object.assign(configuration, { clientEncryptionRequirement: 'follow_account' });
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    reloadConfiguration();
+  });
+
   const credentials = {
     token: 'token',
     encryption: {

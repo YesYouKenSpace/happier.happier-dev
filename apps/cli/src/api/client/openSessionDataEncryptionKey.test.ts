@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { sealEncryptedDataKeyEnvelopeV1 } from '@happier-dev/protocol';
 
 import type { Credentials } from '@/persistence';
+import { requireEncryptionCredentials } from '@/persistence';
 import { encodeBase64 } from '../encryption';
 import { openSessionDataEncryptionKey } from './openSessionDataEncryptionKey';
 
@@ -14,6 +15,7 @@ describe('owner session data-key authentication', () => {
       token: 'synthetic-token',
       encryption: { type: 'dataKey', publicKey: account.publicKey, machineKey: account.secretKey },
     };
+    requireEncryptionCredentials(credential);
     const envelope = sealEncryptedDataKeyEnvelopeV1({
       dataKey: kind === 'machine' ? account.secretKey : randomBytes(32),
       recipientPublicKey: account.publicKey,
@@ -21,7 +23,7 @@ describe('owner session data-key authentication', () => {
     });
     const input = {
       credential,
-      sessionId: 'owner-session',
+      expectedSessionTag: 'owner-session',
       encryptedDataEncryptionKeyBase64: encodeBase64(envelope),
     };
 

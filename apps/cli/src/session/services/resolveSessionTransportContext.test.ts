@@ -8,6 +8,7 @@ import {
   sealOwnerSessionDataKeyEnvelope,
 } from '@happier-dev/protocol';
 import type { Credentials } from '@/persistence';
+import { requireEncryptionCredentials } from '@/persistence';
 import { encodeBase64, encrypt, libsodiumPublicKeyFromSecretKey } from '@/api/encryption';
 import { createEncryptedSessionRecordFixture, createSessionRecordFixture } from '@/testkit/backends/sessionFixtures';
 import { resolveExistingSessionAttachContext } from '@/daemon/sessionEncryption/resolveExistingSessionAttachContext';
@@ -29,6 +30,7 @@ describe('strict session transport', () => {
   const machineKey = randomBytes(32);
   const publicKey = libsodiumPublicKeyFromSecretKey(machineKey);
   const credentials: Credentials = { token: 'synthetic-token', encryption: { type: 'dataKey', machineKey, publicKey } };
+  requireEncryptionCredentials(credentials);
   const key = new Uint8Array(randomBytes(32));
   const sealed = () => encodeBase64(sealOwnerSessionDataKeyEnvelope({
     material: credentials.encryption, sessionTag: 'tag', dataKey: key, randomBytes,
@@ -122,7 +124,9 @@ describe('strict session transport', () => {
     }) } });
     await expect(resolveSessionTransportContext({ credentials, idOrPrefix: id }))
       .rejects.toMatchObject({ code: 'SESSION_KEY_AUTHENTICATION_FAILED', retryable: false });
-    expect(get.mock.calls.length).toBeLessThanOrEqual(2);
+    // A missing envelope tolerates the bounded create→publish refetch before the strict
+    // rejection lands; present-but-forged envelopes are rejected without any refetch.
+    expect(get.mock.calls.length).toBeLessThanOrEqual(attack === 'missing' ? 5 : 2);
   });
 
   it('rejects a binding that names a different session', async () => {

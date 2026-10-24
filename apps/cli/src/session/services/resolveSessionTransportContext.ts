@@ -9,6 +9,7 @@ import {
 } from '@/session/transport/encryption/sessionEncryptionContext';
 import { type ResolveSessionIdResult, resolveSessionIdOrPrefix } from '@/session/query/resolveSessionId';
 import { fetchSessionById, type RawSessionRecord } from '@/session/transport/http/sessionsHttp';
+import { tryDecryptSessionMetadata } from '@/session/transport/encryption/sessionEncryptionContext';
 import { delay } from '@/utils/time';
 
 export type ResolveSessionTransportContextResult =

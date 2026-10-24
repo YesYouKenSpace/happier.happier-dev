@@ -17,8 +17,9 @@ import {
   sealOwnerSessionDataKeyEnvelope,
 } from '@happier-dev/protocol';
 
-import { reloadConfiguration } from '@/configuration';
+import { configuration, reloadConfiguration } from '@/configuration';
 import type { Credentials, Settings } from '@/persistence';
+import { requireEncryptionCredentials } from '@/persistence';
 import { encodeBase64, encrypt } from '@/api/encryption';
 import { readSessionAttachFromEnv } from '@/agent/runtime/sessionAttach';
 import { createSessionRecordFixture } from '@/testkit/backends/sessionFixtures';
@@ -107,6 +108,8 @@ describe('happier resume', () => {
 
   beforeEach(() => {
     vi.stubEnv('HAPPIER_ENCRYPTION_REQUIREMENT', 'follow_account');
+    // The configuration singleton is read at call time, so pin it directly (env stubs cannot reach it).
+    Object.assign(configuration, { clientEncryptionRequirement: 'follow_account' });
     exitSpy.mockClear();
   });
   afterEach(() => {
@@ -390,6 +393,7 @@ describe('happier resume', () => {
         token: 'token-1',
         encryption: { type: 'dataKey', machineKey, publicKey },
       };
+      requireEncryptionCredentials(credentials);
 
       const sessionEncryptionKey = new Uint8Array(32).fill(5);
       const envelope = sealOwnerSessionDataKeyEnvelope({

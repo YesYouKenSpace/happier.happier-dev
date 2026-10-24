@@ -47,9 +47,6 @@ export function resolveSessionEncryptionContextFromCredentials(
     return { encryptionKey: null, encryptionVariant: 'plain' };
   }
   requireEncryptionCredentials(credentials);
-  if (credentials.encryption.type === 'legacy') {
-    return { encryptionKey: credentials.encryption.secret, encryptionVariant: 'legacy' };
-  }
 
   if (typeof rawSession?.id !== 'string' || !rawSession.id) throw new SessionKeyAuthenticationError();
 

@@ -18,6 +18,7 @@ import {
 } from '@happier-dev/protocol';
 
 import type { Credentials } from '@/persistence';
+import { requireEncryptionCredentials } from '@/persistence';
 import { resolveSessionEncryptionContext } from '@/api/client/encryptionKey';
 import { resolveSessionStoredContentEncryptionMode } from '@/session/transport/encryption/sessionEncryptionContext';
 import { assertSessionEncryptionModeAllowedByEffectiveClientRequirement } from '@/settings/accountSettings/resolveEffectiveClientEncryptionRequirement';
@@ -537,8 +538,10 @@ export async function getOrCreateSessionByTag(params: Readonly<{
   );
   let session: RawSessionRecord = parsed.session;
   if (resolveSessionStoredContentEncryptionMode(parsed.session) === 'e2ee') {
+    const credential = params.credentials;
+    requireEncryptionCredentials(credential);
     const opened = openSessionDataEncryptionKey({
-      credential: params.credentials,
+      credential,
       expectedSessionTag: params.tag,
       encryptedDataEncryptionKeyBase64: parsed.session.dataEncryptionKey,
     });

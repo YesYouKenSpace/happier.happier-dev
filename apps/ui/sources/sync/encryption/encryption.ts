@@ -209,6 +209,7 @@ export class Encryption {
     ) {
         this.anonID = anonID;
         this.contentKeyPair = contentKeyPair;
+        this.fallbackSecret = masterSecret;
         this.useDataKeyFallback = useDataKeyFallback;
         this.fallbackEncryption = masterSecret ? this.createFallbackEncryption(masterSecret) : null;
         this.automationTemplateEncryption = masterSecret ? new SecretBoxEncryption(masterSecret) : null;
@@ -608,6 +609,9 @@ export class Encryption {
         scope: EncryptionScopeInput = {},
     ): Promise<Array<Uint8Array | null>> {
         if (rows.length === 0) return [];
+        // No account keypair: owner envelopes cannot be opened; strict layers reject the rows.
+        const contentKeyPair = this.contentKeyPair;
+        if (!contentKeyPair) return rows.map(() => null);
         const capturedScope = this.getCurrentEncryptionGenerationScope(scope);
         const isCurrent = () => !scope.signal?.aborted && scope.shouldContinue?.() !== false
             && this.isCurrentEncryptionGenerationScope(capturedScope);
@@ -623,7 +627,7 @@ export class Encryption {
                     if (!isCurrent()) return null;
                     try {
                         const opened = openOwnerSessionDataKeyEnvelope({
-                            material: { type: 'dataKey', machineKey: this.contentKeyPair.privateKey },
+                            material: { type: 'dataKey', machineKey: contentKeyPair.privateKey },
                             envelope: decodeBase64(row.dataEncryptionKey, 'base64'),
                         });
                         return opened?.dataKey ?? null;

@@ -151,6 +151,15 @@ export async function executeClaimedRun(params: {
     if (spawnResult.type === 'success') {
       if (template.targetType === 'existing_session' && typeof template.prompt === 'string' && template.prompt.trim().length > 0) {
         const sessionEncryptionMode = template.sessionEncryptionMode === 'plain' ? 'plain' : 'e2ee';
+        if (sessionEncryptionMode !== 'plain' && !encryption) {
+          await claimClient.failRun({
+            runId: claimed.run.id,
+            machineId,
+            errorCode: 'missing_session_encryption_key',
+            errorMessage: 'existing_session automation prompt delivery requires account encryption material',
+          });
+          return;
+        }
         try {
           await enqueueAutomationPrompt({
             token,

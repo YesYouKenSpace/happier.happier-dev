@@ -10,6 +10,7 @@ import {
 } from '@happier-dev/protocol';
 
 import type { Credentials } from '@/persistence';
+import { requireEncryptionCredentials } from '@/persistence';
 import { resetServerFeaturesClientForTests } from '@/features/serverFeaturesClient';
 import { createSessionRecordFixture } from '@/testkit/backends/sessionFixtures';
 import { createTestMetadata } from '@/testkit/backends/sessionMetadata';
@@ -30,6 +31,7 @@ describe.each(['legacy', 'dataKey'] as const)('owner session create/load (%s cre
       ? { type, secret }
       : { type, machineKey: secret, publicKey: libsodiumPublicKeyFromSecretKey(secret) },
   };
+  requireEncryptionCredentials(credential);
   const envelope = (sessionTag = tag) => encodeBase64(sealOwnerSessionDataKeyEnvelope({
     material: credential.encryption, sessionTag, dataKey, randomBytes,
   }));

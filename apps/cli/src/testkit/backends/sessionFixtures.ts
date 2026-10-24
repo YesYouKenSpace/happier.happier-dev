@@ -6,6 +6,7 @@ import type { Metadata, PermissionMode, Session } from '@/api/types';
 import type { V2SessionListResponse, V2SessionRecord } from '@happier-dev/protocol';
 import { buildSessionKeyBindingMetadataField, sealOwnerSessionDataKeyEnvelope } from '@happier-dev/protocol';
 import type { Credentials } from '@/persistence';
+import { requireEncryptionCredentials } from '@/persistence';
 import { encodeBase64, encrypt, getRandomBytes } from '@/api/encryption';
 
 import { createTestMetadata } from './sessionMetadata';
@@ -249,6 +250,7 @@ export function createEncryptedSessionRecordFixture(params: Omit<Partial<Session
     binding?: { sessionId: string; sessionTag: string } | null;
 }>): SessionRecordFixture {
     const { credentials, metadata, sessionTag, dataKey, binding, ...overrides } = params;
+    requireEncryptionCredentials(credentials);
     const effectiveSessionTag = sessionTag ?? 'fixture-tag';
     const effectiveDataKey = dataKey ?? getRandomBytes(32);
     const metadataWithBinding = binding === null

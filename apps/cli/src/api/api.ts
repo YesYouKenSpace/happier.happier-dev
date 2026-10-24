@@ -17,7 +17,7 @@ import { ApiMachineClient } from './apiMachine';
 import { decodeBase64, encodeBase64, encrypt, decrypt } from './encryption';
 import { PushNotificationClient } from './pushNotifications';
 import { configuration } from '@/configuration';
-import { Credentials } from '@/persistence';
+import { Credentials, requireEncryptionCredentials } from '@/persistence';
 
 import { resolveSessionEncryptionContext } from './client/encryptionKey';
 import { resolveMachineRegistrationContent, resolvePublishedMachineContent } from './machine/resolveMachineRegistrationContent';
@@ -507,8 +507,10 @@ export class ApiClient {
         sessionEncryptionKey = new Uint8Array(0);
         metadata = JSON.parse(String(raw.metadata ?? 'null'));
       } else {
+        const credential = this.credential;
+        requireEncryptionCredentials(credential);
         const opened = openSessionDataEncryptionKey({
-          credential: this.credential,
+          credential,
           expectedSessionTag: opts.tag,
           encryptedDataEncryptionKeyBase64: (raw as any).dataEncryptionKey,
         });
@@ -550,7 +552,7 @@ export class ApiClient {
 	        };
 	      }
 
-	      if (!sessionEncryptionKey || !encryptionVariant) throw new Error('Session encryption material is unavailable');
+	      if (!sessionEncryptionKey) throw new Error('Session encryption material is unavailable');
 	      return {
 	        id: raw.id,
 	        seq: raw.seq,

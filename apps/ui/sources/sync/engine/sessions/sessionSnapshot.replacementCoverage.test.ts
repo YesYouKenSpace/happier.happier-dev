@@ -50,7 +50,8 @@ function buildPlainRow(id: string): V2SessionRecord {
 
 function createEncryptionHarness(): SessionListEncryption {
     return {
-        decryptEncryptionKeys: vi.fn(async (values: readonly string[]) => values.map(() => null)),
+        decryptSessionEncryptionKeys: vi.fn(async (rows: readonly unknown[]) => rows.map(() => null)),
+        hasSessionEncryptionKey: vi.fn(() => false),
         initializeSessions: vi.fn(async () => {}),
         removeSessionEncryption: vi.fn(),
         getSessionEncryption: vi.fn(() => null),

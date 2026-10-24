@@ -273,10 +273,12 @@ describe('scoped data-key resolution coalesces concurrent callers', () => {
     it('keeps machine token eviction from invalidating the session cache identity', async () => {
         process.env.EXPO_PUBLIC_HAPPIER_SCOPED_RPC_MACHINE_KEY_CACHE_MAX = '1';
         process.env.EXPO_PUBLIC_HAPPIER_SCOPED_RPC_SESSION_KEY_CACHE_MAX = '2';
+        const evictionEncryption = await Encryption.create(new Uint8Array(32).fill(7));
+        const evictionRow = await boundRow(evictionEncryption, 'session-1', new Uint8Array(32).fill(9));
         runtimeFetchMock.mockImplementation(async (input: unknown, init?: RequestInit) => {
             if (isReachabilityProbe(input)) return reachabilityOk();
             if (String(input).includes('/v2/sessions/')) {
-                return { ok: true, status: 200, json: async () => sessionByIdBody('session-1', 'session-key') };
+                return { ok: true, status: 200, json: async () => sessionByIdBody(evictionRow) };
             }
             const authorization = new Headers(init?.headers).get('authorization') ?? '';
             return {
@@ -285,13 +287,13 @@ describe('scoped data-key resolution coalesces concurrent callers', () => {
                 json: async () => [{ id: 'machine-1', dataEncryptionKey: `machine-${authorization}` }],
             };
         });
-        const decrypt = vi.fn(async () => new Uint8Array([1]));
+        const decryptEviction = vi.fn(async () => new Uint8Array([1]));
         const resolveEvictionSession = () => resolveScopedSessionDataKey({
             serverId: 'server-1',
             serverUrl: 'https://server.example.test',
             token: 'session-token',
             sessionId: 'session-1',
-            decryptEncryptionKey: decrypt,
+            encryption: evictionEncryption,
         });
 
         await resolveEvictionSession();
@@ -301,7 +303,7 @@ describe('scoped data-key resolution coalesces concurrent callers', () => {
                 serverUrl: 'https://server.example.test',
                 token,
                 machineId: 'machine-1',
-                decryptEncryptionKey: decrypt,
+                decryptEncryptionKey: decryptEviction,
             });
         }
         await resolveEvictionSession();
