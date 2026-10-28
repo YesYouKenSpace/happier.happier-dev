@@ -129,6 +129,18 @@ describe('strict session transport', () => {
     expect(get.mock.calls.length).toBeLessThanOrEqual(attack === 'missing' ? 5 : 2);
   });
 
+  it('rejects a bound row whose envelope was stripped without falling back to the account key', async () => {
+    const bound = createEncryptedSessionRecordFixture({
+      id, credentials, dataKey: key, sessionTag: 'tag', metadata: { path: '/verified' },
+    });
+    const stripped = { ...bound, dataEncryptionKey: null };
+    const get = vi.spyOn(axios, 'get').mockResolvedValue({ status: 200, data: { session: stripped } });
+    await expect(resolveSessionTransportContext({ credentials, idOrPrefix: id }))
+      .rejects.toMatchObject({ code: 'SESSION_KEY_AUTHENTICATION_FAILED', retryable: false });
+    // Bounded create→publish refetch only; the account key never opens session-key ciphertext.
+    expect(get.mock.calls.length).toBeLessThanOrEqual(5);
+  });
+
   it('rejects a binding that names a different session', async () => {
     vi.spyOn(axios, 'get').mockResolvedValue({ status: 200, data: { session: createEncryptedSessionRecordFixture({
       id, credentials, dataKey: key, sessionTag: 'tag', metadata: { path: '/synthetic' },

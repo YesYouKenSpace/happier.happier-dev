@@ -87,3 +87,17 @@ test-all:
 test-public-sharing:
 	yarn --cwd apps/ui vitest run sources/sync/domains/features sources/hooks/server/useFeature sources/sync/domains/social sources/sync/api/social sources/sync/encryption/publicShareEncryption.test.ts sources/components/sessions/sharing sources/__tests__/app/share "sources/__tests__/routes/(app)/session/[id]/sharing.permission.test.tsx" "sources/__tests__/routes/(app)/session/[id]/sharing.publicFeature.test.tsx"
 	yarn --cwd apps/ui typecheck
+
+# Malicious-relay regression gate for authenticated owner-session DEKs.
+# Every suite below must stay green: each covers a relay-substitution, transplant,
+# replay, wrong-account, or downgrade attack that the strict cutover must reject.
+# UI typecheck is intentionally excluded: it fails on pre-existing third-party
+# drift (markdown/legendList components) unrelated to this corridor; the UI suites
+# below are the enforced contract instead.
+test-security:
+	yarn workspace @happier-dev/protocol vitest run src/crypto/ownerSessionDataKeyEnvelope.test.ts
+	yarn workspace @happier-dev/protocol typecheck
+	yarn workspace @happier-dev/cli vitest run src/api/api.sessionDataEncryptionKey.test.ts src/api/client/encryptionKey.test.ts src/api/client/openSessionDataEncryptionKey.test.ts src/session/services/resolveSessionTransportContext.test.ts src/cli/output/session/sessionSummary.test.ts src/cli/commands/attach.test.ts src/cli/commands/resume.test.ts src/api/api.test.ts src/api/session/snapshotSync.test.ts src/daemon/automation/automationPendingQueueClient.test.ts src/session/transport/encryption/sessionEncryptionContext.plaintext.test.ts
+	yarn workspace @happier-dev/cli typecheck
+	PRISMA_QUERY_ENGINE_LIBRARY=$$(pwd)/apps/server/generated/sqlite-client/libquery_engine.so.node PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING=1 yarn workspace @happier-dev/server vitest run --isolate -c vitest.integration.config.ts sources/app/api/routes/session/sessionRoutes.createRegister.sqlite.integration.spec.ts
+	yarn --cwd apps/ui vitest run sources/sync/runtime/orchestration/serverScopedRpc/scopedDataKeySingleFlight.test.ts sources/sync/sync.clientEncryptionRequirement.test.ts sources/sync/engine/pending/pendingQueueV2.errorHandling.test.ts sources/sync/encryption/sessionDataKeyHydration.test.ts sources/sync/engine/sessions/sessionSnapshot.replacementCoverage.test.ts sources/sync/engine/socket/socket.updateSession.plaintext.test.ts

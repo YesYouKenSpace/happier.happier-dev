@@ -88,15 +88,17 @@ describe("session create/load before publisher registration (SQLite integration)
         // Only the creation POST carries the original key's ciphertext; later loads send fresh
         // candidate-key ciphertext that the stored envelope cannot open.
         app.addHook("preHandler", async (request) => {
-            if (request.method === "POST" && request.url === "/v1/sessions" && requestedCreateMetadata === null) {
+            const pathname = request.url.split("?")[0];
+            if (request.method === "POST" && pathname === "/v1/sessions" && requestedCreateMetadata === null) {
                 const body = request.body as { metadata?: unknown };
                 if (body && typeof body.metadata === "string") requestedCreateMetadata = body.metadata;
             }
         });
         // Mutate only serialized transport responses; auth, route handlers and SQLite remain real.
         app.addHook("onSend", async (request, reply, payload) => {
+            const pathname = request.url.split("?")[0];
             if (!replacement || reply.statusCode !== 200 || typeof payload !== "string"
-                || !/^\/v[12]\/sessions(?:\/[^/]+)?$/.test(request.url)) return payload;
+                || !/^\/v[12]\/sessions(?:\/[^/]+)?$/.test(pathname)) return payload;
             const body = JSON.parse(payload) as { session?: Record<string, unknown> };
             if (!body.session) return payload;
             replacedResponses += 1;
@@ -267,7 +269,13 @@ describe("session create/load before publisher registration (SQLite integration)
         expect(await runCli({ action: "load", type: pairedType })).toMatchObject({
             created: false, session: { id: stored.id }, recovered: { metadata, agentState },
         });
-        expect(replacedResponses).toBe(10);
+        // A relay stripping the envelope off bound metadata cannot fall back to the
+        // account key: bound ciphertext only opens under the session key.
+        const boundRow = await db.session.findUniqueOrThrow({ where: { id: stored.id } });
+        replacement = { dataEncryptionKey: null, metadata: boundRow.metadata, agentState: boundRow.agentState };
+        expect(await runCli({ action: "load", type: pairedType })).toMatchObject(expectedAuthFailure);
+        expect(await runCli({ action: "resume", type: pairedType, sessionId: stored.id })).toMatchObject(expectedAuthFailure);
+        expect(replacedResponses).toBe(12);
         replacement = null;
         expect(await runCli({ action: "resume", type: pairedType, sessionId: stored.id })).toEqual(resumed);
         const after = await db.session.findUniqueOrThrow({ where: { id: stored.id } });

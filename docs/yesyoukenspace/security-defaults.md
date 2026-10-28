@@ -123,14 +123,18 @@ Verification performed:
   review reproduced and then verified corrections for plaintext scoped-RPC downgrade and
   legacy-row collection poisoning.
 - Post-rebase integration coverage: the CLI retry-then-reject composition
-  ([transport test](../../apps/cli/src/session/services/resolveSessionTransportContext.test.ts)),
+  ([transport test](../../apps/cli/src/session/services/resolveSessionTransportContext.test.ts),
+  including stripped-envelope-on-bound-row rejection without account-key fallback),
   the restored scoped memo with per-account isolation
   ([scoped test](../../apps/ui/sources/sync/runtime/orchestration/serverScopedRpc/scopedDataKeySingleFlight.test.ts)),
   legacy-envelope opening through the strict path and plaintext-summary projection under the
   fork default (pinned to `follow_account` in routing/projection tests, matching the
-  established attach-test pattern), and the daemon automation credential derivation. CLI and
+  established attach-test pattern), the daemon automation credential derivation, and the
+  composed server proof extended with the stripped-bound case. CLI and
   protocol typechecks are clean in the fork's scope; UI typecheck is clean in `sync/` and the
-  touched suites pass.
+  touched suites pass. The standing gate is `make test-security` (protocol envelope +
+  CLI strict suites + composed server spec + UI scoped suites + CLI/protocol typechecks;
+  green end-to-end: 16 + 201 + 8 + 155 tests).
 
 Remaining gates: browser/native-device execution and running daemon/provider resume have not been
 exercised. `make test-all` fails outside this corridor on missing Bun, an OpenCode launcher check,
@@ -139,10 +143,6 @@ pristine base: missing `smol-toml`/`ws-node` installs (worked around locally wit
 `apps/cli/node_modules` symlinks, no repo change), absent `tmux` (one attach test made hermetic;
 the rest of that file passes), and upstream markdown/legendList/codex typecheck errors in files
 this change does not touch. The required 0.3 port lacks a destination checkout.
-
-Remaining gates: browser/native-device execution and running daemon/provider resume have not been
-exercised. `make test-all` fails outside this corridor on missing Bun, an OpenCode launcher check,
-and missing website release-reference checkouts. The required 0.3 port lacks a destination checkout.
 The Roadmap remains open and no completion entry is recorded yet. Authenticated envelopes do not
 establish freshness, prevent a relay withholding data, or protect a compromised paired endpoint.
 
